@@ -8,3 +8,7 @@ env_ts/
 .conda/
 
 .idea
+
+.agents
+
+__init__
