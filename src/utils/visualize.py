@@ -16,3 +16,14 @@ def save_processed_images(save_dir, filename, gray, binary, edges):
         os.path.join(save_dir, "edge_" + filename),
         edges
     )
+
+def draw_contours(image, contours):
+    result = image.copy()
+    cv2.drawContours(
+        result,
+        contours,
+        -1,
+        (0, 255, 0),
+        2
+    )
+    return result

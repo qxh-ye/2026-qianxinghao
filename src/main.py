@@ -1,7 +1,11 @@
 import os
 from pathlib import Path
 
+import cv2
+
 from src.preprocess.enhancement import process_image
+from src.detection.contour_detect import detect_contours
+from src.utils.visualize import draw_contours
 
 
 def main():
@@ -18,7 +22,28 @@ def main():
         if img_name.endswith((".jpg", ".png")):
             img_path = os.path.join(raw_dir, img_name)
 
-            process_image(img_path, save_dir)
+            result = process_image(img_path, save_dir)
+
+            edges = result["edges"]
+
+            contours = detect_contours(edges)
+
+            print(
+                img_name,
+                "检测轮廓数量:",
+                len(contours)
+            )
+
+            img = cv2.imread(img_path)
+
+            result_img = draw_contours(img, contours)
+
+            success = cv2.imwrite(
+                str(save_dir / f"contour_{img_name}"),
+                result_img
+            )
+            print("保存状态：", success)
+
 
 if __name__ == "__main__":
     main()

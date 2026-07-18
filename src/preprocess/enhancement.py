@@ -39,7 +39,7 @@ def process_image(img_path, save_dir):
     binary = cv2.adaptiveThreshold(
         blur,
         255,
-        cv2.ADAPTIVE_THRESH_MEAN_C,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
         cv2.THRESH_BINARY,
         11,
         2
@@ -61,3 +61,9 @@ def process_image(img_path, save_dir):
     )
 
     print(f"{filename} processing finished")
+
+    return {
+        "gray": gray,
+        "binary": binary,
+        "edges": edges
+    }
