@@ -5,7 +5,8 @@ import cv2
 
 from src.preprocess.enhancement import process_image
 from src.detection.contour_detect import detect_contours, filter_contours
-from src.utils.visualize import draw_contours
+from src.utils.visualize import draw_contours, draw_circle
+from src.detection.circle_detect import detect_circle
 
 
 def main():
@@ -28,7 +29,18 @@ def main():
 
             contours = detect_contours(edges)
 
-            filtered_contours = filter_contours(contours, edges)
+            img = cv2.imread(img_path)
+
+            filtered_contours = filter_contours(contours, img.shape)
+
+            if len(filtered_contours) == 0:
+                print(
+                    img_name,
+                    "没有检测到有效表盘"
+                )
+                continue
+
+            circle = detect_circle(filtered_contours[0])
 
             print(
                 img_name,
@@ -38,9 +50,9 @@ def main():
                 len(filtered_contours)
             )
 
-            img = cv2.imread(img_path)
 
-            result_img = draw_contours(img, filtered_contours)
+            result_img = draw_contours(img, filtered_contours)  # draw_contours 检测轮廓
+            # result_img = draw_circle(img, circle)       # 画圆
 
             success = cv2.imwrite(
                 str(save_dir / f"contour_{img_name}"),

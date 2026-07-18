@@ -27,3 +27,15 @@ def draw_contours(image, filtered_contours):
         2
     )
     return result
+
+def draw_circle(img, circle):
+    x, y, r = circle
+
+    cv2.circle(
+        img,
+        (x, y),
+        r,
+        (0, 255, 0),
+        3
+    )
+    return img
