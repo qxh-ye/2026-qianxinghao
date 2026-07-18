@@ -4,7 +4,7 @@ from pathlib import Path
 import cv2
 
 from src.preprocess.enhancement import process_image
-from src.detection.contour_detect import detect_contours
+from src.detection.contour_detect import detect_contours, filter_contours
 from src.utils.visualize import draw_contours
 
 
@@ -28,15 +28,19 @@ def main():
 
             contours = detect_contours(edges)
 
+            filtered_contours = filter_contours(contours, edges)
+
             print(
                 img_name,
-                "检测轮廓数量:",
-                len(contours)
+                "过滤前测轮廓数量:",
+                len(contours),
+                "过滤后测轮廓数量:",
+                len(filtered_contours)
             )
 
             img = cv2.imread(img_path)
 
-            result_img = draw_contours(img, contours)
+            result_img = draw_contours(img, filtered_contours)
 
             success = cv2.imwrite(
                 str(save_dir / f"contour_{img_name}"),

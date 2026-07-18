@@ -17,11 +17,11 @@ def save_processed_images(save_dir, filename, gray, binary, edges):
         edges
     )
 
-def draw_contours(image, contours):
+def draw_contours(image, filtered_contours):
     result = image.copy()
     cv2.drawContours(
         result,
-        contours,
+        filtered_contours,
         -1,
         (0, 255, 0),
         2
