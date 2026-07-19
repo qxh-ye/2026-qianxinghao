@@ -5,9 +5,9 @@ from pathlib import Path
 
 from src.preprocess.enhancement import process_image
 from src.detection.contour_detect import detect_contours, filter_contours
-from src.utils.visualize import draw_contours, draw_circle
+from src.utils.visualize import draw_contours, draw_circle, draw_pointer_candidates
 from src.detection.circle_detect import detect_circle
-from src.detection.pointer_detect import extract_dial_roi
+from src.detection.pointer_detect import extract_dial_roi, detect_pointer_candidates
 
 
 def main():
@@ -46,6 +46,28 @@ def main():
             gray_image = result["gray"]
 
             dial_roi, dial_mask = extract_dial_roi(gray_image, circle, radius_scale=1.0)
+
+            pointer_candidates, pointer_edges = detect_pointer_candidates(dial_roi, circle)
+
+            pointer_candidate_image = draw_pointer_candidates(
+                img,
+                pointer_candidates,
+                circle
+            )
+
+            cv2.imwrite(
+                str(save_dir / f"pointer_edges_{img_name}"),
+                pointer_edges
+            )
+
+            cv2.imwrite(
+                str(save_dir / f"pointer_candidates_{img_name}"),
+                pointer_candidate_image
+            )
+            print(
+                img_name,
+                "指针候选数量：", len(pointer_candidates)
+            )
 
             roi_success = cv2.imwrite(
                 str(save_dir / f"roi_{img_name}"),
