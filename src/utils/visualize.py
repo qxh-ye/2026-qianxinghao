@@ -1,5 +1,7 @@
 import os
 import cv2
+import numpy as np
+
 
 def save_processed_images(save_dir, filename, gray, binary, edges):
     cv2.imwrite(
@@ -71,4 +73,59 @@ def draw_pointer_candidates(image, candidates, circle):
         (255, 0, 0),
         -1
     )
+    return result
+
+def draw_selected_pointer_axis(image, pointer_line, circle):
+    """
+    在原图上绘制最终选择的指针轴
+    :param image:
+    :param pointer_line:
+    :param circle:
+    :return:
+    """
+
+    result = image.copy()
+
+    if pointer_line is None:
+        return result
+
+    center_x, center_y, radius = circle
+    x1, y1, x2, y2 = pointer_line
+
+    angle = np.arctan2(
+        y2 - y1,
+        x2 - x1
+    )
+
+    direction_x = np.cos(angle)
+    direction_y = np.sin(angle)
+
+    axis_length = radius * 0.85
+
+    start_point = (
+        int(center_x - direction_x * axis_length),
+        int(center_y - direction_y * axis_length)
+    )
+
+    end_point = (
+        int(center_x + direction_x * axis_length),
+        int(center_y + direction_y * axis_length)
+    )
+
+    cv2.line(
+        result,
+        start_point,
+        end_point,
+        (0, 255, 0),
+        3
+    )
+
+    cv2.circle(
+        result,
+        (center_x, center_y),
+        5,
+        (255, 0, 0),
+        -1
+    )
+
     return result

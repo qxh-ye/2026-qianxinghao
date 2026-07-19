@@ -5,9 +5,9 @@ from pathlib import Path
 
 from src.preprocess.enhancement import process_image
 from src.detection.contour_detect import detect_contours, filter_contours
-from src.utils.visualize import draw_contours, draw_circle, draw_pointer_candidates
+from src.utils.visualize import draw_contours, draw_circle, draw_pointer_candidates, draw_selected_pointer_axis
 from src.detection.circle_detect import detect_circle
-from src.detection.pointer_detect import extract_dial_roi, detect_pointer_candidates
+from src.detection.pointer_detect import extract_dial_roi, detect_pointer_candidates, select_best_pointer_line
 
 
 def main():
@@ -53,6 +53,28 @@ def main():
                 img,
                 pointer_candidates,
                 circle
+            )
+
+            best_pointer_line, best_pointer_score = select_best_pointer_line(
+                gray_image,
+                pointer_candidates,
+                circle
+            )
+
+            selected_pointer_image = draw_selected_pointer_axis(
+                img,
+                best_pointer_line,
+                circle
+            )
+
+            cv2.imwrite(
+                str(save_dir / f"pointer_selected_{img_name}"),
+                selected_pointer_image
+            )
+
+            print(
+                img_name,
+                "最佳指针轴暗度评分:", f"{best_pointer_score:.3f}"
             )
 
             cv2.imwrite(

@@ -1,5 +1,7 @@
 import cv2
 import numpy as np
+from numpy import arctan2
+
 
 def extract_dial_roi(gray_img, circle, radius_scale=1.0):
     """
@@ -166,3 +168,94 @@ def detect_pointer_candidates(dial_roi, circle):
             candidates.append(line)
 
     return candidates, pointer_edges
+
+
+def calculate_axis_darkness(gray_img, circle, line):
+    """
+    计算候选直线方向上的暗度评分
+    评分越高， 说明该方向包含的深色像素越多， 越可能是指针方向
+    :param gray_img:    原始灰度图
+    :param circle:      表盘圆信息 (center_x, center_y, radius)
+    :param line:        Hough候选线段：(x1, y1, x2, y2)
+    :return:
+    """
+
+    center_x, center_y, radius = circle
+    x1, y1, x2, y2 = line
+
+    angle = arctan2(
+        y2 - y1,
+        x2 - x1
+    )
+
+    direction_x = np.cos(angle)
+    direction_y = np.sin(angle)
+
+    axis_length = radius * 0.85
+
+    start_point = (
+        int(center_x - direction_x * axis_length),
+        int(center_y - direction_y * axis_length)
+    )
+
+    end_point = (
+        int(center_x + direction_x * axis_length),
+        int(center_y + direction_y * axis_length)
+    )
+
+    axis_mask = np.zeros_like(
+        gray_img,
+        dtype=np.uint8
+    )
+
+    axis_width = max(
+        2,
+        int(radius * 0.025)
+    )
+
+    cv2.line(
+        axis_mask,
+        start_point,
+        end_point,
+        255,
+        axis_width
+    )
+
+    cv2.circle(
+        axis_mask,
+        (center_x, center_y),
+        int(radius * 0.10),
+        0,
+        -1
+    )
+
+    axis_pixels = gray_img[axis_mask > 0]
+
+    if axis_pixels.size == 0:
+        return 0.0
+
+    darkness_score = np.mean(255.0 - axis_pixels) / 255.0
+
+    return float(darkness_score)
+
+def select_best_pointer_line(gray_img, candidates, circle):
+    """
+    根据候选方向的暗度评分， 选择最可能的指针轴
+    :param gray_img:
+    :param candidates:
+    :param circle:
+    :return:
+    """
+    if len(candidates) == 0:
+        return None, 0.0
+
+    best_line = None
+    best_score = -1.0
+
+    for line in candidates:
+        score = calculate_axis_darkness(gray_img, circle, line)
+
+        if score > best_score:
+            best_score = score
+            best_line = line
+    return best_line, best_score
