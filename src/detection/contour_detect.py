@@ -58,48 +58,48 @@ def filter_contours(contours, img_shape):
 
     h,w = img_shape[:2]
 
-    img_area = h*w
+    img_area = h * w
 
     candidates=[]
 
 
     for cnt in contours:
 
-        area=cv2.contourArea(cnt)
+        area = cv2.contourArea(cnt)
 
 
-        if area <=0:
+        if area <= 0:
             continue
 
 
-        if area < img_area*0.03:
+        if area < img_area * 0.03:
             continue
 
 
-        if area > img_area*0.9:
+        if area > img_area * 0.9:
             continue
 
 
-        x,y,ww,hh=cv2.boundingRect(cnt)
+        x, y, ww, hh = cv2.boundingRect(cnt)
 
 
-        ratio=ww/hh
+        ratio = ww / hh
 
 
-        if ratio <0.7 or ratio>1.3:
+        if ratio < 0.7 or ratio> 1.3:
             continue
 
 
-        perimeter=cv2.arcLength(cnt,True)
+        perimeter = cv2.arcLength(cnt,True)
 
-        if perimeter==0:
+        if perimeter == 0:
             continue
 
 
-        circularity=4*np.pi*area/(perimeter*perimeter)
+        circularity = 4 * np.pi * area / (perimeter * perimeter)
 
 
-        if circularity<0.6:
+        if circularity < 0.6:
             continue
 
 
@@ -107,7 +107,7 @@ def filter_contours(contours, img_shape):
         print(type(cnt), cnt.shape)
 
 
-    if len(candidates)==0:
+    if len(candidates) == 0:
         return []
 
 
