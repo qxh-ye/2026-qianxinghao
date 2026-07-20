@@ -208,3 +208,34 @@ def draw_pointer_direction(image, circle, pointer_tip, pointer_angle):
 
     return result
 
+def draw_meter_result(image, circle, pointer_tip, pointer_angle, pointer_reading, unit):
+    result = draw_pointer_direction(
+        image,
+        circle,
+        pointer_tip,
+        pointer_angle
+    )
+
+    center_x, center_y, radius = circle
+
+    cv2.circle(
+        result,
+        (center_x, center_y),
+        radius,
+        (0, 255, 0),
+        3
+    )
+
+    if pointer_reading is not None:
+        cv2.putText(
+            result,
+            f"Reading: {pointer_reading:.3f} {unit}",
+            (10, 60),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            max(0.4, radius / 300),
+            (255, 0, 255),
+            1,
+            cv2.LINE_AA
+        )
+    return result
+

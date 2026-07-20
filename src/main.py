@@ -5,10 +5,11 @@ from pathlib import Path
 
 from src.preprocess.enhancement import process_image
 from src.detection.contour_detect import detect_contours, filter_contours
-from src.utils.visualize import draw_contours, draw_circle, draw_pointer_candidates, draw_selected_pointer_axis, draw_pointer_direction
+from src.utils.visualize import draw_contours, draw_circle, draw_pointer_candidates, draw_selected_pointer_axis, draw_pointer_direction, draw_meter_result
 from src.detection.circle_detect import detect_circle
 from src.detection.pointer_detect import extract_dial_roi, detect_pointer_candidates, select_best_pointer_line, determine_pointer_tip
-from src.calculation.angle_calculator import calculate_pointer_angle
+from src.calculation import calculate_pointer_angle, calculate_gauge_reading
+from configs.gauge_config import GAUGE_PROFILES
 
 def main():
     # 项目根目录
@@ -65,12 +66,51 @@ def main():
 
             pointer_angle = calculate_pointer_angle(circle, pointer_tip)
 
+            gauge_profile = GAUGE_PROFILES[
+                "pressure_0_1.6_mpa"
+            ]
+
+            pointer_reading = calculate_gauge_reading(
+                pointer_angle=pointer_angle,
+                start_angle=gauge_profile["start_angle"],
+                end_angle=gauge_profile["end_angle"],
+                min_value=gauge_profile["min_value"],
+                max_value=gauge_profile["max_value"]
+            )
+
+            meter_result_image = draw_meter_result(
+                img,
+                circle,
+                pointer_tip,
+                pointer_angle,
+                pointer_reading,
+                unit=gauge_profile["unit"]
+            )
+
+            cv2.imwrite(
+                str(save_dir / f"result_{img_name}"),
+                meter_result_image
+            )
+
             pointer_direction_image = draw_pointer_direction(
                 img,
                 circle,
                 pointer_tip,
                 pointer_angle
             )
+
+            if pointer_reading is None:
+                print(
+                    img_name,
+                    "没有得到有效仪表读数"
+                )
+            else:
+                print(
+                    img_name,
+                    "仪表读数：",
+                    f"{pointer_reading:.3f}",
+                    gauge_profile["unit"]
+                )
 
             cv2.imwrite(
                 str(save_dir / f"pointer_direction_{img_name}"),
