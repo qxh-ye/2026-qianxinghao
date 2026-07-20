@@ -1,6 +1,6 @@
+from .angle_calculator import calculate_angle_offset
 
-
-def calculate_gauge_reading(pointer_angle, start_angle, end_angle, min_value, max_value):
+def calculate_gauge_reading(pointer_angle, start_angle, end_angle, min_value, max_value, direction="clockwise"):
     """
     根据指针角度和仪表量程计算读数
     :param pointer_angle:   当前指针角度
@@ -17,12 +17,20 @@ def calculate_gauge_reading(pointer_angle, start_angle, end_angle, min_value, ma
     if max_value <= min_value:
         raise ValueError("max_value 必须大于 min_value")
 
-    scale_sweep = (end_angle - start_angle) % 360.0
+    scale_sweep = calculate_angle_offset(
+        end_angle,
+        start_angle,
+        direction
+    )
 
     if scale_sweep == 0:
         raise ValueError("起始角度和结束角度不能相同")
 
-    pointer_sweep = (pointer_angle - start_angle) % 360.0
+    pointer_sweep = calculate_angle_offset(
+        pointer_angle,
+        start_angle,
+        direction
+    )
 
     if pointer_sweep > scale_sweep:
         return None

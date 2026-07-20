@@ -8,7 +8,7 @@ from src.detection.contour_detect import detect_contours, filter_contours
 from src.utils.visualize import draw_contours, draw_circle, draw_pointer_candidates, draw_selected_pointer_axis, draw_pointer_direction, draw_meter_result
 from src.detection.circle_detect import detect_circle
 from src.detection.pointer_detect import extract_dial_roi, detect_pointer_candidates, select_best_pointer_line, determine_pointer_tip
-from src.calculation import calculate_pointer_angle, calculate_gauge_reading
+from src.calculation import calculate_pointer_angle, calculate_gauge_reading, resolve_pointer_direction
 from configs.gauge_config import GAUGE_PROFILES
 
 def main():
@@ -67,15 +67,27 @@ def main():
             pointer_angle = calculate_pointer_angle(circle, pointer_tip)
 
             gauge_profile = GAUGE_PROFILES[
-                "pressure_0_1.6_mpa"
+                "pressure_0_1_6_mpa"
             ]
+
+            pointer_tip, pointer_angle, direction_flipped = (
+                resolve_pointer_direction(
+                    circle=circle,
+                    pointer_tip=pointer_tip,
+                    pointer_angle=pointer_angle,
+                    start_angle=gauge_profile["start_angle"],
+                    end_angle=gauge_profile["end_angle"],
+                    direction=gauge_profile["direction"]
+                )
+            )
 
             pointer_reading = calculate_gauge_reading(
                 pointer_angle=pointer_angle,
                 start_angle=gauge_profile["start_angle"],
                 end_angle=gauge_profile["end_angle"],
                 min_value=gauge_profile["min_value"],
-                max_value=gauge_profile["max_value"]
+                max_value=gauge_profile["max_value"],
+                direction=gauge_profile["direction"]
             )
 
             meter_result_image = draw_meter_result(
@@ -86,6 +98,12 @@ def main():
                 pointer_reading,
                 unit=gauge_profile["unit"]
             )
+
+            if direction_flipped:
+                print(
+                    img_name,
+                    "指针方向已根据有效刻度范围翻转"
+                )
 
             cv2.imwrite(
                 str(save_dir / f"result_{img_name}"),
