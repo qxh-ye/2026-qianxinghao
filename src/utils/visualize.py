@@ -129,3 +129,82 @@ def draw_selected_pointer_axis(image, pointer_line, circle):
     )
 
     return result
+
+def draw_pointer_direction(image, circle, pointer_tip, pointer_angle):
+    """
+    绘制最终指针方向和角度
+    :param image:
+    :param circle:
+    :param pointer_tip:
+    :param pointer_angle:
+    :return:
+    """
+    result = image.copy()
+
+    if pointer_tip is None or pointer_angle is None:
+        return result
+
+    center_x, center_y, radius = circle
+    tip_x, tip_y = pointer_tip
+
+    direction_x = tip_x - center_x
+    direction_y = tip_y - center_y
+
+    direction_length = np.hypot(
+        direction_x,
+        direction_y
+    )
+
+    if direction_length == 0:
+        return result
+
+    unit_x = direction_x / direction_length
+    unit_y = direction_y / direction_length
+
+    arrow_length = radius * 0.85
+
+    arrow_tip = (
+        int(center_x + unit_x * arrow_length),
+        int(center_y + unit_y * arrow_length)
+    )
+
+    cv2.arrowedLine(
+        result,
+        (center_x, center_y),
+        arrow_tip,
+        (0, 255, 0),
+        3,
+        tipLength=0.08
+    )
+
+    cv2.circle(
+        result,
+        (center_x, center_y),
+        5,
+        (255, 0, 0),
+        -1
+    )
+
+    font_scale = max(
+        0.4,
+        radius / 300.0
+    )
+
+    text_thickness = max(
+        1,
+        int(radius / 150)
+    )
+
+    cv2.putText(
+        result,
+        f"Angle: {pointer_angle:.1f} deg",
+        (10, 30),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        font_scale,
+        (0, 0, 255),
+        text_thickness,
+        cv2.LINE_AA
+    )
+
+    return result
+

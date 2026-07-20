@@ -259,3 +259,32 @@ def select_best_pointer_line(gray_img, candidates, circle):
             best_score = score
             best_line = line
     return best_line, best_score
+
+def determine_pointer_tip(circle, pointer_line):
+    """
+    根据线段两个端点到圆心的距离，判断真正的指针尖端
+    :param circle:
+    :param pointer_line:    最佳指针候选线 (x1, y1, x2, y2)
+    :return:
+    """
+
+    if pointer_line is None:
+        return None
+
+    center_x, center_y, _ = circle
+    x1, y1, x2, y2 = pointer_line
+
+    distance_1 = np.hypot(
+        x1 - center_x,
+        y1 - center_y
+    )
+
+    distance_2 = np.hypot(
+        x2 - center_x,
+        y2 - center_y
+    )
+
+    if distance_1 >= distance_2:
+        return x1, y1
+
+    return x2, y2

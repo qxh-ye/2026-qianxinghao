@@ -5,10 +5,10 @@ from pathlib import Path
 
 from src.preprocess.enhancement import process_image
 from src.detection.contour_detect import detect_contours, filter_contours
-from src.utils.visualize import draw_contours, draw_circle, draw_pointer_candidates, draw_selected_pointer_axis
+from src.utils.visualize import draw_contours, draw_circle, draw_pointer_candidates, draw_selected_pointer_axis, draw_pointer_direction
 from src.detection.circle_detect import detect_circle
-from src.detection.pointer_detect import extract_dial_roi, detect_pointer_candidates, select_best_pointer_line
-
+from src.detection.pointer_detect import extract_dial_roi, detect_pointer_candidates, select_best_pointer_line, determine_pointer_tip
+from src.calculation.angle_calculator import calculate_pointer_angle
 
 def main():
     # 项目根目录
@@ -60,6 +60,34 @@ def main():
                 pointer_candidates,
                 circle
             )
+
+            pointer_tip = determine_pointer_tip(circle, best_pointer_line)
+
+            pointer_angle = calculate_pointer_angle(circle, pointer_tip)
+
+            pointer_direction_image = draw_pointer_direction(
+                img,
+                circle,
+                pointer_tip,
+                pointer_angle
+            )
+
+            cv2.imwrite(
+                str(save_dir / f"pointer_direction_{img_name}"),
+                pointer_direction_image
+            )
+
+            if pointer_angle is None:
+                print(
+                    img_name,
+                    "没有检测到有效指针角度"
+                )
+            else:
+                print(
+                    img_name,
+                    "指针角度：",
+                    f"{pointer_angle:.1f}°"
+                )
 
             selected_pointer_image = draw_selected_pointer_axis(
                 img,
