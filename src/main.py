@@ -214,7 +214,7 @@ def main():
             )
 
             cv2.imwrite(
-                str(dial_dir / f"pointer_edges_{img_name}"),
+                str(pointer_dir / f"pointer_edges_{img_name}"),
                 pointer_edges
             )
 
@@ -256,7 +256,7 @@ def main():
             result_img = draw_circle(img, circle)       # 画圆
 
             success = cv2.imwrite(
-                str(result_dir / f"circle_{img_name}"),
+                str(dial_dir / f"circle_{img_name}"),
                 result_img
             )
             print("保存状态：", success)
