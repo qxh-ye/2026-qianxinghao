@@ -288,3 +288,171 @@ def determine_pointer_tip(circle, pointer_line):
         return x1, y1
 
     return x2, y2
+
+
+def calculate_line_axis_angle(line):
+    """
+    计算Hough线段的轴方向  角度定义：正上方 = 0度  右侧 = 90度
+    :param line: Hough线段 (x1, y1, x2, y2)
+    :return:
+    """
+    x1, y1, x2, y2 = line
+
+    delta_x = x2 - x1
+    delta_y = y2 - y1
+
+    if delta_x == 0 and delta_y == 0:
+        return None
+
+    angle = np.degrees(
+        np.arctan2(delta_x, -delta_y)
+    )
+
+    axis_angle = angle % 180.0
+
+    return float(axis_angle)
+
+
+def calculate_axis_angle_difference(angle_1, angle_2):
+    """
+    计算两条无方向轴线之前的角度差
+    :param angle_1:  第一条轴线角度
+    :param angle_2:  第二条轴线角度
+    :return:
+    """
+
+    difference = abs(angle_1 - angle_2) % 180.0
+
+    return min(difference, 180.0 - difference)
+
+
+def estimate_pointer_axis_angle(candidates, reference_line, angle_tolerance=10.0):
+    """
+    根据多条Hough候选线估计指针中心轴角度
+    :param candidates:      所有通过圆心筛选的候选线
+    :param reference_line:  暗度评分最佳的参考线
+    :param angle_tolerance: 候选线允许的最大角度差
+    :return:
+    """
+
+    if reference_line is None:
+        return None
+
+    reference_angle = calculate_line_axis_angle(reference_line)
+
+    if reference_angle is None:
+        return None
+
+    selected_angles = []
+    selected_weights = []
+
+    for line in candidates:
+        line_angle = calculate_line_axis_angle(line)
+
+        if line_angle is None:
+            continue
+
+        angle_difference = calculate_axis_angle_difference(
+            line_angle,
+            reference_angle
+        )
+
+        if angle_difference > angle_tolerance:
+            continue
+
+        x1, y1, x2, y2 = line
+
+        line_length = np.hypot(
+            x2 - x1,
+            y2 - y1
+        )
+
+        selected_angles.append(line_angle)
+        selected_weights.append(line_length)
+
+    if len(selected_angles) == 0:
+        return reference_angle
+
+    double_angles = np.radians(
+        np.array(selected_angles) * 2.0
+    )
+
+    weights = np.array(
+        selected_weights,
+        dtype=np.float64
+    )
+
+    mean_cos = np.sum(
+        weights * np.cos(double_angles)
+    )
+
+    mean_sin = np.sum(
+        weights * np.sin(double_angles)
+    )
+
+    mean_angle = 0.5 * np.degrees(
+        arctan2(mean_sin, mean_cos)
+    )
+
+    mean_angle = mean_angle % 180.0
+
+    return float(mean_angle)
+
+
+def align_axis_angle_with_reference(axis_angle, reference_angle):
+    """
+    根据原始指针方向，为无方向轴角度选择正反方向
+    :param axis_angle:      综合后的轴角度， 范围0~180度
+    :param reference_angle: 原始尖端角度， 范围0~360度
+    :return:                与原始方向更接近的角度
+    """
+
+    if axis_angle is None:
+        return reference_angle
+
+    if reference_angle is None:
+        return axis_angle
+
+    option_1 = axis_angle
+    option_2 = (axis_angle + 180.0) % 360.0
+
+    distance_1 = abs(
+        (option_1 - reference_angle + 180.0) % 360.0 - 180.0
+    )
+    distance_2 = abs(
+        (option_2 - reference_angle + 180.0) % 360.0 - 180.0
+    )
+
+    if distance_1 <= distance_2:
+        return float(option_1)
+
+    return float(option_2)
+
+
+def create_pointer_tip_from_angle(circle, pointer_angle, length_scale=0.5):
+    """
+    根据角度构造一个用于表示方向的指针尖端
+    :param circle:          表盘圆 (center_x, center_y, radius)
+    :param pointer_angle:   指针方向角度
+    :param length_scale:    构造点距离圆心的半径比例
+    :return:                构造出的方向点
+    """
+
+    if pointer_angle is None:
+        return None
+
+    center_x, center_y, radius = circle
+
+    angle_radian = np.radians(pointer_angle)
+
+    pointer_length = (radius * length_scale)
+
+    tip_x = center_x + (
+        np.sin(angle_radian) * pointer_length
+    )
+
+    tip_y = center_y - (
+        np.cos(angle_radian) * pointer_length
+    )
+
+    return int(tip_x), int(tip_y)

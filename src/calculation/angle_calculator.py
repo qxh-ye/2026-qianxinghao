@@ -54,18 +54,22 @@ def calculate_angle_offset(target_angle, start_angle, direction="clockwise"):
     )
 
 
-def is_angle_in_scale(angle, start_angle, end_angle, direction="clockwise"):
+def is_angle_in_scale(angle, start_angle, end_angle, direction="clockwise", angle_tolerance=5.0):
     """
     判断一个角度是否位于仪表有效刻度范围
     :param angle:           要检查的指针角度
     :param start_angle:     最小刻度角度
     :param end_angle:       最大刻度角度
     :param direction:       刻度增加方向
+    :param angle_tolerance: 起止刻度允许的角度误差
     :return:
     """
 
     if angle is None:
         return False
+
+    if angle_tolerance < 0:
+        raise ValueError("angle_tolerance 不能小于 0")
 
     scale_sweep = calculate_angle_offset(
         end_angle,
@@ -82,10 +86,19 @@ def is_angle_in_scale(angle, start_angle, end_angle, direction="clockwise"):
         direction
     )
 
-    return pointer_sweep <= scale_sweep
+    near_valid_range = (
+        pointer_sweep <= scale_sweep + angle_tolerance
+    )
+
+    near_start_boundary = (
+        pointer_sweep >= 360.0 - angle_tolerance
+    )
+
+    return near_valid_range or near_start_boundary
 
 
-def resolve_pointer_direction(circle, pointer_tip, pointer_angle, start_angle, end_angle, direction="clockwise"):
+def resolve_pointer_direction(circle, pointer_tip, pointer_angle, start_angle, end_angle, direction="clockwise", angle_tolerance=5.0
+):
     """
     根据有效刻度范围修正指针正反方向
     :param circle:          表盘圆信息 (center_x, center_y, radius)
@@ -94,6 +107,7 @@ def resolve_pointer_direction(circle, pointer_tip, pointer_angle, start_angle, e
     :param start_angle:     最小刻度角度
     :param end_angle:       最大刻度角度
     :param direction:       刻度增加方向
+    :param angle_tolerance  翻转检测时容错度数
     :return:
         corrected_tip：  修正后的尖端
         corrected_angle：修正后的角度
@@ -107,7 +121,8 @@ def resolve_pointer_direction(circle, pointer_tip, pointer_angle, start_angle, e
         pointer_angle,
         start_angle,
         end_angle,
-        direction
+        direction,
+        angle_tolerance=angle_tolerance
     )
 
     opposite_angle = (pointer_angle + 180.0) % 360.0
@@ -116,7 +131,8 @@ def resolve_pointer_direction(circle, pointer_tip, pointer_angle, start_angle, e
         opposite_angle,
         start_angle,
         end_angle,
-        direction
+        direction,
+        angle_tolerance=angle_tolerance
     )
 
     if not original_valid and opposite_valid:

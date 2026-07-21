@@ -5,6 +5,7 @@ GAUGE_PROFILES = {
         "min_value": 0.0,
         "max_value": 1.6,
         "unit": "MPa",
-        "direction": "clockwise"
+        "direction": "clockwise",
+        "angle_tolerance": 5.0
     }
 }
