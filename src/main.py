@@ -17,15 +17,31 @@ def main():
 
     # 数据路径
     raw_dir = BASE_DIR / "data" / "raw"
-    save_dir = BASE_DIR / "data" / "processed"
+    output_root = BASE_DIR / "data" / "processed"
 
-    os.makedirs(save_dir, exist_ok=True)
+    preprocess_dir = output_root / "preprocess"
+    dial_dir = output_root / "dial"
+    pointer_dir = output_root / "pointer"
+    result_dir = output_root / "results"
+
+    output_dirs = (
+        preprocess_dir,
+        dial_dir,
+        pointer_dir,
+        result_dir
+    )
+
+    for output_dir in output_dirs:
+        output_dir.mkdir(
+            parents=True,
+            exist_ok=True
+        )
 
     for img_name in os.listdir(raw_dir):
         if img_name.endswith((".jpg", ".png")):
             img_path = os.path.join(raw_dir, img_name)
 
-            result = process_image(img_path, save_dir)
+            result = process_image(img_path, preprocess_dir)
 
             edges = result["edges"]
 
@@ -140,7 +156,7 @@ def main():
                 )
 
             cv2.imwrite(
-                str(save_dir / f"result_{img_name}"),
+                str(result_dir / f"result_{img_name}"),
                 meter_result_image
             )
 
@@ -165,7 +181,7 @@ def main():
                 )
 
             cv2.imwrite(
-                str(save_dir / f"pointer_direction_{img_name}"),
+                str(pointer_dir / f"pointer_direction_{img_name}"),
                 pointer_direction_image
             )
 
@@ -188,7 +204,7 @@ def main():
             )
 
             cv2.imwrite(
-                str(save_dir / f"pointer_selected_{img_name}"),
+                str(pointer_dir / f"pointer_selected_{img_name}"),
                 selected_pointer_image
             )
 
@@ -198,12 +214,12 @@ def main():
             )
 
             cv2.imwrite(
-                str(save_dir / f"pointer_edges_{img_name}"),
+                str(dial_dir / f"pointer_edges_{img_name}"),
                 pointer_edges
             )
 
             cv2.imwrite(
-                str(save_dir / f"pointer_candidates_{img_name}"),
+                str(pointer_dir / f"pointer_candidates_{img_name}"),
                 pointer_candidate_image
             )
             print(
@@ -212,12 +228,12 @@ def main():
             )
 
             roi_success = cv2.imwrite(
-                str(save_dir / f"roi_{img_name}"),
+                str(dial_dir / f"roi_{img_name}"),
                 dial_roi
             )
 
             mask_success = cv2.imwrite(
-                str(save_dir / f"mask_{img_name}"),
+                str(dial_dir / f"mask_{img_name}"),
                 dial_mask
             )
 
@@ -240,7 +256,7 @@ def main():
             result_img = draw_circle(img, circle)       # 画圆
 
             success = cv2.imwrite(
-                str(save_dir / f"contour_{img_name}"),
+                str(result_dir / f"circle_{img_name}"),
                 result_img
             )
             print("保存状态：", success)
