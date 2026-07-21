@@ -6,7 +6,7 @@ from pathlib import Path
 from src.preprocess.enhancement import process_image
 from src.detection.contour_detect import detect_contours, filter_contours
 from src.utils.visualize import draw_contours, draw_circle, draw_pointer_candidates, draw_selected_pointer_axis, draw_pointer_direction, draw_meter_result
-from src.detection.circle_detect import detect_circle
+from src.detection.circle_detect import detect_circle, detect_circle_by_hough
 from src.detection.pointer_detect import extract_dial_roi, detect_pointer_candidates, select_best_pointer_line, determine_pointer_tip, estimate_pointer_axis_angle, align_axis_angle_with_reference, create_pointer_tip_from_angle
 from src.calculation import calculate_pointer_angle, calculate_gauge_reading, resolve_pointer_direction
 from configs.gauge_config import GAUGE_PROFILES
@@ -35,16 +35,24 @@ def main():
 
             filtered_contours = filter_contours(contours, img.shape)
 
-            if len(filtered_contours) == 0:
-                print(
-                    img_name,
-                    "没有检测到有效表盘"
-                )
+            gray_image = result["gray"]
+
+            if len(filtered_contours) > 0:
+                circle = detect_circle(filtered_contours[0])
+                detection_method = "contour"
+            else:
+                circle = detect_circle_by_hough(gray_image)
+                detection_method = "hough"
+
+            if circle is None:
+                print(img_name, "没有检测到有效表盘")
                 continue
 
-            circle = detect_circle(filtered_contours[0])
-
-            gray_image = result["gray"]
+            print(
+                img_name,
+                "表盘检测方法：", detection_method,
+                "圆参数：", circle
+            )
 
             dial_roi, dial_mask = extract_dial_roi(gray_image, circle, radius_scale=1.0)
 
