@@ -399,6 +399,123 @@ def estimate_pointer_axis_angle(candidates, reference_line, angle_tolerance=10.0
     return float(mean_angle)
 
 
+def select_pointer_direction_by_reach(
+        circle,
+        candidates,
+        axis_angle,
+        reference_angle,
+        direction_angle_tolerance=10.0,
+        min_reach_difference=0.08
+):
+    """
+    根据Hough候选线在中心轴两侧的径向延伸长度， 判断真实指针尖端方向
+    :param circle:  表盘圆信息  (center_x, center_y, radius)
+    :param candidates:  通过圆心距离筛选后的Hough候选线
+    :param axis_angle:  无方向中心轴角度 一般为0~180度
+    :param reference_angle:  原始线段端点得到的参考方向， 当两侧证据接近时作为备用方向
+    :param direction_angle_tolerance:   计算方向长度时， 候选线与中心轴允许的最大角度差
+    :param min_reach_difference:    两侧归一化延伸长度的最小有效差值
+    :return:
+            pointer_angle:  最终选择的方向角度
+            positive_reach:  axis_angle方向的最大延伸比例
+            negative_reach:  axis_angle + 180度方向的最大延伸比例
+            direction_confident:    是否根据延伸长度得到明确方向
+    """
+    if axis_angle is None:
+        return reference_angle, 0.0, 0.0, False
+
+    center_x, center_y, radius = circle
+
+    if radius <= 0:
+        return reference_angle, 0.0, 0.0, False
+
+    angle_radian = np.radians(axis_angle)
+
+    unit_x = np.sin(angle_radian)
+    unit_y = -np.cos(angle_radian)
+
+    positive_reach = 0.0
+    negative_reach = 0.0
+
+    for line in candidates:
+        line_axis_angle = calculate_line_axis_angle(
+            line
+        )
+
+        if line_axis_angle is None:
+            continue
+
+        angle_difference = calculate_axis_angle_difference(
+            line_axis_angle,
+            axis_angle
+        )
+
+        if angle_difference > direction_angle_tolerance:
+            continue
+
+        x1, y1, x2, y2 = line
+
+        endpoints = (
+            (x1, y1),
+            (x2, y2)
+        )
+
+        for point_x, point_y in endpoints:
+            vector_x = point_x - center_x
+            vector_y = point_y - center_y
+
+            projection = (
+                vector_x * unit_x
+                + vector_y * unit_y
+            )
+
+            normalized_projection = (
+                projection / radius
+            )
+
+            if normalized_projection >= 0:
+                positive_reach = max(
+                    positive_reach,
+                    normalized_projection
+                )
+            else:
+                negative_reach = max(
+                    negative_reach,
+                    -normalized_projection
+                )
+
+    reach_difference = abs(
+        positive_reach - negative_reach
+    )
+
+    if reach_difference < min_reach_difference:
+        fallback_angle = align_axis_angle_with_reference(
+            axis_angle,
+            reference_angle
+        )
+
+        return (
+            fallback_angle,
+            positive_reach,
+            negative_reach,
+            False
+        )
+
+    if positive_reach > negative_reach:
+        pointer_angle = axis_angle % 360.0
+    else:
+        pointer_angle = (
+            axis_angle + 180.0
+        ) % 360.0
+
+    return (
+        float(pointer_angle),
+        float(positive_reach),
+        float(negative_reach),
+        True
+    )
+
+
 def align_axis_angle_with_reference(axis_angle, reference_angle):
     """
     根据原始指针方向，为无方向轴角度选择正反方向

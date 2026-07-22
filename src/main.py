@@ -7,7 +7,7 @@ from src.preprocess.enhancement import process_image
 from src.detection.contour_detect import detect_contours, filter_contours
 from src.utils.visualize import draw_contours, draw_circle, draw_pointer_candidates, draw_selected_pointer_axis, draw_pointer_direction, draw_meter_result
 from src.detection.circle_detect import detect_circle, detect_circle_by_hough
-from src.detection.pointer_detect import extract_dial_roi, detect_pointer_candidates, select_best_pointer_line, determine_pointer_tip, estimate_pointer_axis_angle, align_axis_angle_with_reference, create_pointer_tip_from_angle
+from src.detection.pointer_detect import extract_dial_roi, detect_pointer_candidates, select_best_pointer_line, determine_pointer_tip, estimate_pointer_axis_angle, align_axis_angle_with_reference, create_pointer_tip_from_angle, select_pointer_direction_by_reach
 from src.calculation import calculate_pointer_angle, calculate_gauge_reading, resolve_pointer_direction
 from configs.gauge_config import GAUGE_PROFILES
 
@@ -96,9 +96,30 @@ def main():
                 angle_tolerance=5.0
             )
 
-            pointer_angle = align_axis_angle_with_reference(
+            (
+                pointer_angle,
+                positive_reach,
+                negative_reach,
+                direction_confident
+            ) = select_pointer_direction_by_reach(
+                circle=circle,
+                candidates=pointer_candidates,
                 axis_angle=pointer_axis_angle,
-                reference_angle=raw_pointer_angle
+                reference_angle=raw_pointer_angle,
+                direction_angle_tolerance=10.0,
+                min_reach_difference=0.08
+            )
+
+            print(
+                img_name,
+                "正方向延伸：",
+                f"{positive_reach:.3f}",
+                "反方向延伸：",
+                f"{negative_reach:.3f}",
+                "方向判断可靠：",
+                direction_confident,
+                "选择角度：",
+                pointer_angle
             )
 
             pointer_tip = create_pointer_tip_from_angle(
