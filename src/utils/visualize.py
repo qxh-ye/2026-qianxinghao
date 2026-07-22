@@ -43,6 +43,120 @@ def draw_circle(img, circle):
 
     return img
 
+def draw_info_panel(image, lines, background_alpha=0.65):
+    if len(lines) == 0:
+        return image
+
+    result = image.copy()
+
+    image_height, image_width = result.shape[:2]
+    short_side = min(image_height, image_width)
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+
+    font_scale = float(
+        np.clip(
+            short_side / 800.0,
+            0.4,
+            1.2
+        )
+    )
+
+    text_thickness = max(
+        1,
+        int(round(font_scale * 2))
+    )
+
+    padding = max(
+        5,
+        int(round(short_side * 0.015))
+    )
+
+    line_gap = max(
+        4,
+        int(round(short_side * 0.01))
+    )
+
+    text_sizes = [
+        cv2.getTextSize(
+            text,
+            font,
+            font_scale,
+            text_thickness
+        )
+        for text in lines
+    ]
+
+    text_width = max(
+        size[0][0]
+        for size in text_sizes
+    )
+
+    text_height = max(
+        size[0][1]
+        for size in text_sizes
+    )
+
+    baseline = max(
+        size[1]
+        for size in text_sizes
+    )
+
+    line_height = text_height + baseline
+
+    panel_width = (
+        text_width + padding * 2
+    )
+
+    panel_height = (
+        padding * 2 + line_height * len(lines) + line_gap * (len(lines) - 1)
+    )
+
+    panel_x = padding
+    panel_y = padding
+
+    overlay = result.copy()
+
+    cv2.rectangle(
+        overlay,
+        (panel_x, panel_y),
+        (
+            min(image_width -1, panel_x + panel_width),
+            min(image_height - 1, panel_y + panel_height)
+        ),
+        (0, 0, 0),
+        -1
+    )
+
+    cv2.addWeighted(
+        overlay,
+        background_alpha,
+        result,
+        1.0 - background_alpha,
+        0,
+        result
+    )
+
+    text_x = panel_x + padding
+    text_y = panel_y + padding + text_height
+
+    for text in lines:
+        cv2.putText(
+            result,
+            text,
+            (text_x, text_y),
+            font,
+            font_scale,
+            (255, 255, 255),
+            text_thickness,
+            cv2.LINE_AA
+        )
+
+        text_y += line_height + line_gap
+
+    return result
+
+
 def draw_pointer_candidates(image, candidates, circle):
     """
     在原图上绘制所有指针候选直线
@@ -130,13 +244,14 @@ def draw_selected_pointer_axis(image, pointer_line, circle):
 
     return result
 
-def draw_pointer_direction(image, circle, pointer_tip, pointer_angle):
+def draw_pointer_direction(image, circle, pointer_tip, pointer_angle, show_angle=True):
     """
     绘制最终指针方向和角度
     :param image:
     :param circle:
     :param pointer_tip:
     :param pointer_angle:
+    :param show_angle
     :return:
     """
     result = image.copy()
@@ -185,35 +300,22 @@ def draw_pointer_direction(image, circle, pointer_tip, pointer_angle):
         -1
     )
 
-    font_scale = max(
-        0.4,
-        radius / 300.0
-    )
-
-    text_thickness = max(
-        1,
-        int(radius / 150)
-    )
-
-    cv2.putText(
-        result,
-        f"Angle: {pointer_angle:.1f} deg",
-        (10, 30),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        font_scale,
-        (0, 0, 255),
-        text_thickness,
-        cv2.LINE_AA
-    )
+    if show_angle:
+        result = draw_info_panel(
+            result,
+            [f"Angle: {pointer_angle:.1f} deg"]
+        )
 
     return result
+
 
 def draw_meter_result(image, circle, pointer_tip, pointer_angle, pointer_reading, unit):
     result = draw_pointer_direction(
         image,
         circle,
         pointer_tip,
-        pointer_angle
+        pointer_angle,
+        show_angle=False
     )
 
     center_x, center_y, radius = circle
@@ -227,15 +329,18 @@ def draw_meter_result(image, circle, pointer_tip, pointer_angle, pointer_reading
     )
 
     if pointer_reading is not None:
-        cv2.putText(
+        info_lines = []
+
+        if pointer_angle is not None:
+            info_lines.append(f"Angle: {pointer_angle:.1f} deg")
+
+        if pointer_reading is not None:
+            info_lines.append(f"Reading: {pointer_reading:.3f} {unit}")
+
+        result = draw_info_panel(
             result,
-            f"Reading: {pointer_reading:.3f} {unit}",
-            (10, 60),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            max(0.4, radius / 300),
-            (255, 0, 255),
-            1,
-            cv2.LINE_AA
+            info_lines
         )
+
     return result
 
