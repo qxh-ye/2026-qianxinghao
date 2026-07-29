@@ -24,6 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            "apple_detector_node = "
+            "qxh_robot_vision.apple_detector_node:main",
         ],
     },
 )
