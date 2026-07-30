@@ -66,7 +66,6 @@ class AppleDetectorNode(Node):
                 f"Failed to detect apples: {error}"
             )
             return
-        
         try:
             annotated_message = self.bridge.cv2_to_imgmsg(
                 annotated_image,
