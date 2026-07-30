@@ -176,3 +176,84 @@ def detect_apples(
     )
 
     return detections
+
+
+def draw_detections(bgr_image, detections):
+    """在图像上绘制苹果位置、成熟度和二维中心"""
+    if bgr_image is None or bgr_image.size == 0:
+        raise ValueError("bgr_image 不能为空")
+
+    if len(bgr_image.shape) != 3 or bgr_image.shape[2] != 3:
+        raise ValueError("bgr_image 必须是三通道的 BGR 图像")
+
+    if detections is None:
+        raise ValueError("detections 不能为None")
+
+    annotated_image = bgr_image.copy()
+
+    maturity_colors = {
+        "ripe": (0, 0, 255),  # 红色
+        "unripe": (0, 255, 0),  # 绿色
+    }
+
+    required_keys = {
+        "maturity",
+        "center",
+        "radius",
+    }
+
+    for detection in detections:
+        missing_keys = required_keys - detection.keys()
+
+        if missing_keys:
+            raise ValueError(
+                f"detection 缺少字段: {sorted(missing_keys)}"
+            )
+
+        maturity = detection["maturity"]
+        center_x, center_y = detection["center"]
+        radius = detection["radius"]
+
+        color = maturity_colors.get(
+            maturity,
+            (0, 255, 255),  # 黄色表示未知成熟度
+        )
+
+        cv2.circle(
+            annotated_image,
+            (center_x, center_y),
+            radius,
+            color,
+            2,
+        )
+
+        cv2.circle(
+            annotated_image,
+            (center_x, center_y),
+            4,
+            (255, 0, 0),  # 蓝色表示中心点
+            -1, # 实心
+        )
+
+        label = (
+            f"{maturity}: "
+            f"({center_x}, {center_y})"
+        )
+
+        text_position = (
+            max(0, center_x - radius),
+            max(20, center_y - radius - 10),
+        )
+
+        cv2.putText(
+            annotated_image,
+            label,
+            text_position,
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            color,
+            2,
+            cv2.LINE_AA,
+        )
+
+    return annotated_image
