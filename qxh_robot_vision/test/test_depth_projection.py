@@ -55,3 +55,4 @@ def test_invalid_depth_is_rejected(invalid_depth):
             invalid_depth,
             CAMERA_MATRIX,
         )
+        

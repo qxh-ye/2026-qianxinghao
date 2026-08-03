@@ -11,10 +11,12 @@ from qxh_robot_vision.apple_detection import (
     draw_detections,
 )
 
+
 class AppleDetectorNode(Node):
     """
     接收 ROS2 图像， 转换为 OpenCv 图像并发布标注结果
     """
+
 
     def __init__(self):
         super().__init__("apple_detector_node")
@@ -40,6 +42,8 @@ class AppleDetectorNode(Node):
             "Apple detector node started. "
             "Waiting for images on /camera/image_raw"
         )
+
+
 
     def image_callback(self, message):
         """处理一帧 ROS2 图像， 检测苹果并发布标注结果"""
@@ -88,6 +92,7 @@ class AppleDetectorNode(Node):
                 f"Processed {self.frame_count} images; "
                 f"detected {len(detections)} apples"
             )
+
 
 def main(args=None):
     rclpy.init(args=args)

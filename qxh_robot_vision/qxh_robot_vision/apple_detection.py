@@ -232,7 +232,7 @@ def draw_detections(bgr_image, detections):
             (center_x, center_y),
             4,
             (255, 0, 0),  # 蓝色表示中心点
-            -1, # 实心
+            -1,  # 实心
         )
 
         label = (
