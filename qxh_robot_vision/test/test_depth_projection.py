@@ -1,6 +1,7 @@
 import pytest
+import numpy as np
 
-from qxh_robot_vision.depth_projection import pixel_to_camera_point
+from qxh_robot_vision.depth_projection import pixel_to_camera_point, sample_valid_depth
 
 
 CAMERA_MATRIX = (
@@ -55,4 +56,58 @@ def test_invalid_depth_is_rejected(invalid_depth):
             invalid_depth,
             CAMERA_MATRIX,
         )
-        
+
+
+def test_sample_valid_depth_uses_median():
+    depth_image = np.array(
+        [
+            [0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.0, 1.8, 2.0, 2.2, 0.0],
+            [0.0, 2.0, np.nan, 2.0, 0.0],
+            [0.0, 2.2, 2.0, np.inf, 0.0],
+            [0.0, 0.0, 0.0, 0.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+
+    depth = sample_valid_depth(
+        depth_image,
+        2,
+        2,
+        window_size=3,
+    )
+
+    assert depth == pytest.approx(2.0)
+
+
+def test_sample_valid_depth_handles_image_border():
+    depth_image = np.array(
+        [
+            [1.5, 0.0],
+            [0.0, 0.0],
+        ],
+        dtype=np.float32, 
+    )
+
+    depth = sample_valid_depth(
+        depth_image,
+        0,
+        0,
+        window_size=3,
+    )
+
+    assert depth == pytest.approx(1.5)
+
+def test_sample_valid_depth_rejects_empty_window():
+    depth_image = np.zeros(
+        (5, 5),
+        dtype=np.float32,
+    )
+
+    with pytest.raises(ValueError):
+        sample_valid_depth(
+            depth_image,
+            2,
+            2,
+            window_size=3,
+        )

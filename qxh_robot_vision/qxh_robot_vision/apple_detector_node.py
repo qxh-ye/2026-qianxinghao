@@ -17,7 +17,6 @@ class AppleDetectorNode(Node):
     接收 ROS2 图像， 转换为 OpenCv 图像并发布标注结果
     """
 
-
     def __init__(self):
         super().__init__("apple_detector_node")
 
@@ -42,7 +41,6 @@ class AppleDetectorNode(Node):
             "Apple detector node started. "
             "Waiting for images on /camera/image_raw"
         )
-
 
 
     def image_callback(self, message):
@@ -106,6 +104,7 @@ def main(args=None):
     finally:
         node.destroy_node()
         rclpy.shutdown()
+
 
 if __name__ == "__main__":
     main()

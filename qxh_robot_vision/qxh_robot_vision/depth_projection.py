@@ -1,5 +1,55 @@
 """提供二维像素到相机三维坐标的投影工具"""
 import math
+import numpy as np
+
+def sample_valid_depth(
+        depth_image,
+        pixel_x,
+        pixel_y,
+        window_size=5,
+):
+    """从目标中心领域中获取可靠深度"""
+    if depth_image is None or depth_image.size == 0:
+        raise ValueError("depth_image 不能为空")
+
+    if depth_image.ndim != 2:
+        raise ValueError("depth_image 必须是单通道深度图")
+
+    if window_size < 1 or window_size % 2 == 0:
+        raise ValueError("window_size 必须是正奇数")
+
+    pixel_x = int(pixel_x)
+    pixel_y = int(pixel_y)
+
+    height, width = depth_image.shape
+
+    if not 0 <= pixel_x < width:
+        raise ValueError("pixel_x 超出图像范围")
+
+    if not 0 <= pixel_y < height:
+        raise ValueError("pixel_y 超出图像范围")
+
+    half_window = window_size // 2
+
+    x_start = max(0, pixel_x - half_window)
+    x_end = min(width, pixel_x + half_window + 1)
+
+    y_start = max(0, pixel_y - half_window)
+    y_end = min(height, pixel_y + half_window + 1)
+
+    depth_window = depth_image[
+        y_start:y_end,
+        x_start:x_end,
+    ]
+
+    vaild_depths = depth_window[
+        np.isfinite(depth_window) & (depth_window > 0.0)
+    ]
+
+    if vaild_depths.size == 0:
+        raise ValueError("目标领域内没有有效深度")
+
+    return float(np.median(vaild_depths))
 
 
 def pixel_to_camera_point(
