@@ -10,6 +10,9 @@ from qxh_robot_vision.apple_detection import (
     detect_apples,
     draw_detections,
 )
+from qxh_robot_vision.depth_projection import (
+    is_valid_depth,
+)
 
 
 class AppleDetectorNode(Node):
@@ -142,7 +145,7 @@ class AppleDetectorNode(Node):
 
 
     def read_depth_at_pixel(self, pixel_x, pixel_y):
-        """读取指定像素的原始深度，并统一转换为米。"""
+        """读取指定像素的深度，转换为米并过滤无效值。"""
         if self.latest_depth_image is None:
             return None
 
@@ -160,7 +163,9 @@ class AppleDetectorNode(Node):
         if not 0 <= pixel_y < height:
             return None
 
-        raw_depth = float(self.latest_depth_image[pixel_y, pixel_x])
+        raw_depth = float(
+            self.latest_depth_image[pixel_y, pixel_x]
+        )
 
         encoding = self.latest_depth_encoding.upper()
 
@@ -171,11 +176,18 @@ class AppleDetectorNode(Node):
         else:
             return None
 
+        if not is_valid_depth(
+            depth_m,
+            min_depth_m=0.1,
+            max_depth_m=10.0,
+        ):
+            return None
+
         return depth_m
 
 
     def image_callback(self, message):
-        """检测苹果，并读取每个苹果中心像素的原始深度。"""
+        """检测苹果，并读取每个苹果中心像素的有效深度。"""
         try:
             image = self.bridge.imgmsg_to_cv2(
                 message,
@@ -219,7 +231,7 @@ class AppleDetectorNode(Node):
                 depth_summaries.append(
                     f"{detection['maturity']} "
                     f"center=({center_x}, {center_y}) "
-                    f"raw depth={depth_m:.3f} m"
+                    f"valid depth={depth_m:.3f} m"
                 )
 
         try:

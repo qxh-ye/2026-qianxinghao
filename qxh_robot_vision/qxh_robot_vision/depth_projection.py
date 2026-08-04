@@ -2,6 +2,52 @@
 import math
 import numpy as np
 
+
+def is_valid_depth(
+        depth_m,
+        min_depth_m=0.1,
+        max_depth_m=10.0,
+):
+    """判断米制深度是否有限并位于有效范围内。"""
+    try:
+        min_depth_m = float(min_depth_m)
+        max_depth_m = float(max_depth_m)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "深度范围必须是数值"
+        ) from error
+
+    if not math.isfinite(min_depth_m):
+        raise ValueError(
+            "min_depth_m 必须是有限数值"
+        )
+
+    if not math.isfinite(max_depth_m):
+        raise ValueError(
+            "max_depth_m 必须是有限数值"
+        )
+
+    if min_depth_m <= 0.0:
+        raise ValueError(
+            "min_depth_m 必须大于 0.0"
+        )
+
+    if max_depth_m <= min_depth_m:
+        raise ValueError(
+            "max_depth_m 必须大于 min_depth_m"
+        )
+
+    try:
+        depth_m = float(depth_m)
+    except (TypeError, ValueError):
+        return False
+
+    if not math.isfinite(depth_m):
+        return False
+
+    return min_depth_m <= depth_m <= max_depth_m
+
+
 def sample_valid_depth(
         depth_image,
         pixel_x,

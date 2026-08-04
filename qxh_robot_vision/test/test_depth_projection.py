@@ -1,7 +1,11 @@
 import pytest
 import numpy as np
 
-from qxh_robot_vision.depth_projection import pixel_to_camera_point, sample_valid_depth
+from qxh_robot_vision.depth_projection import (
+    is_valid_depth,
+    pixel_to_camera_point,
+    sample_valid_depth,
+)
 
 
 CAMERA_MATRIX = (
@@ -111,3 +115,52 @@ def test_sample_valid_depth_rejects_empty_window():
             2,
             window_size=3,
         )
+
+
+@pytest.mark.parametrize(
+    "valid_depth",
+    [
+        0.1,
+        2.61,
+        10.0,
+    ],
+)
+def test_is_valid_depth_accepts_valid_values(valid_depth):
+    assert is_valid_depth(
+        valid_depth,
+        min_depth_m=0.1,
+        max_depth_m=10.0,
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid_depth",
+    [
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        0.0,
+        -1.0,
+        0.05,
+        10.01,
+        "invalid",
+    ],
+)
+def test_is_valid_depth_rejects_invalid_values(
+        invalid_depth,
+):
+    assert not is_valid_depth(
+        invalid_depth,
+        min_depth_m=0.1,
+        max_depth_m=10.0,
+    )
+
+
+def test_is_valid_depth_rejects_invalid_range():
+    with pytest.raises(ValueError):
+        is_valid_depth(
+            2.0,
+            min_depth_m=10.0,
+            max_depth_m=1.0,
+        )
+        
