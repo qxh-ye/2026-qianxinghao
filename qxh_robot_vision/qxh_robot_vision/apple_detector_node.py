@@ -4,7 +4,7 @@ import rclpy
 from cv_bridge import CvBridge, CvBridgeError
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CameraInfo, Image
 
 from qxh_robot_vision.apple_detection import (
     detect_apples,
@@ -22,10 +22,42 @@ class AppleDetectorNode(Node):
 
         self.bridge = CvBridge()
 
+        # 尚未收到深度图时使用 None
+        self.latest_depth_image = None
+        self.latest_depth_encoding = ""
+        self.latest_depth_frame_id = ""
+
+        # 尚未收到 CameraInfo 时使用 None
+        self.camera_matrix = None
+        self.camera_info_width = 0
+        self.camera_info_height = 0
+        self.camera_frame_id = ""
+
+        self.frame_count = 0
+        self.depth_message_count = 0
+        self.camera_info_message_count = 0
+
+        # RGB 图像订阅
         self.image_subscription = self.create_subscription(
             Image,
             "/camera/image_raw",
             self.image_callback,
+            qos_profile_sensor_data,
+        )
+
+        # 深度图订阅
+        self.depth_subscription = self.create_subscription(
+            Image,
+            "/camera/depth/image_raw",
+            self.depth_callback,
+            qos_profile_sensor_data,
+        )
+
+        # 相机内参订阅
+        self.camera_info_subscription = self.create_subscription(
+            CameraInfo,
+            "/camera/camera_info",
+            self.camera_info_callback,
             qos_profile_sensor_data,
         )
 
@@ -35,12 +67,79 @@ class AppleDetectorNode(Node):
             10,
         )
 
-        self.frame_count = 0
-
         self.get_logger().info(
             "Apple detector node started. "
-            "Waiting for images on /camera/image_raw"
+            "Waiting for RGB, depth and CameraInfo messages."
         )
+
+
+    def depth_callback(self, message):
+        """接收深度图，并缓存为 Numpy 二维数组"""
+        try:
+            depth_image = self.bridge.imgmsg_to_cv2(
+                message,
+                desired_encoding="passthrough",
+            )
+        except CvBridgeError as error:
+            self.get_logger().error(
+                f"Failed to convert depth image: {error}"
+            )
+            return
+
+        if depth_image.ndim != 2:
+            self.get_logger().error(
+                "Depth image must be single-channel;"
+                f"received shape={depth_image.shape}"
+            )
+            return
+
+        self.latest_depth_image = depth_image.copy()
+        self.latest_depth_encoding = message.encoding
+        self.latest_depth_frame_id = message.header.frame_id
+
+        self.depth_message_count += 1
+
+        if(self.depth_message_count == 1 or self.depth_message_count % 30 == 0):
+            self.get_logger().info(
+                "Depth subscription active: "
+                f"count={self.depth_message_count}, "
+                f"encoding={self.latest_depth_encoding}, "
+                f"shape={self.latest_depth_image.shape}, "
+                f"frame_id={self.latest_depth_frame_id}"
+            )
+
+    def camera_info_callback(self, message):
+        """接收 CameraInfo, 并缓存相机内参矩阵。"""
+        if len(message.k) != 9:
+            self.get_logger().error(
+                "CameraInfo.k must contain 9 values; "
+                f"received {len(message.k)}"
+            )
+            return
+
+        self.camera_matrix = tuple(message.k)
+        self.camera_info_width = int(message.width)
+        self.camera_info_height = int(message.height)
+        self.camera_frame_id = message.header.frame_id
+
+        self.camera_info_message_count += 1
+
+        if(
+            self.camera_info_message_count == 1
+            or self.camera_info_message_count % 30 == 0
+        ):
+            self.get_logger().info(
+                "CameraInfo subscription active: "
+                f"count={self.camera_info_message_count}, "
+                f"size=({self.camera_info_height}, "
+                f"{self.camera_info_width}), "
+                f"fx={self.camera_matrix[0]:.3f}, "
+                f"fy={self.camera_matrix[4]:.3f}, "
+                f"cx={self.camera_matrix[2]:.3f}, "
+                f"cy={self.camera_matrix[5]:.3f}, "
+                f"frame_id={self.camera_frame_id}"
+            )
+
 
 
     def image_callback(self, message):
