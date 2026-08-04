@@ -141,9 +141,41 @@ class AppleDetectorNode(Node):
             )
 
 
+    def read_depth_at_pixel(self, pixel_x, pixel_y):
+        """读取指定像素的原始深度，并统一转换为米。"""
+        if self.latest_depth_image is None:
+            return None
+
+        try:
+            pixel_x = int(pixel_x)
+            pixel_y = int(pixel_y)
+        except (TypeError, ValueError):
+            return None
+
+        height, width = self.latest_depth_image.shape
+
+        if not 0 <= pixel_x < width:
+            return None
+
+        if not 0 <= pixel_y < height:
+            return None
+
+        raw_depth = float(self.latest_depth_image[pixel_y, pixel_x])
+
+        encoding = self.latest_depth_encoding.upper()
+
+        if encoding == "32FC1":
+            depth_m = raw_depth
+        elif encoding == "16UC1":
+            depth_m = raw_depth / 1000.0
+        else:
+            return None
+
+        return depth_m
+
 
     def image_callback(self, message):
-        """处理一帧 ROS2 图像， 检测苹果并发布标注结果"""
+        """检测苹果，并读取每个苹果中心像素的原始深度。"""
         try:
             image = self.bridge.imgmsg_to_cv2(
                 message,
@@ -159,22 +191,50 @@ class AppleDetectorNode(Node):
 
         try:
             detections = detect_apples(image)
-
-            annotated_image = draw_detections(image, detections)
-
         except (ValueError, cv2.error) as error:
             self.get_logger().error(
                 f"Failed to detect apples: {error}"
             )
             return
+
+        depth_summaries = []
+
+        for detection in detections:
+            center_x, center_y = detection["center"]
+
+            depth_m = self.read_depth_at_pixel(
+                center_x,
+                center_y,
+            )
+
+            detection["depth_m"] = depth_m
+
+            if depth_m is None:
+                depth_summaries.append(
+                    f"{detection['maturity']} "
+                    f"center=({center_x}, {center_y}) "
+                    "depth unavailable"
+                )
+            else:
+                depth_summaries.append(
+                    f"{detection['maturity']} "
+                    f"center=({center_x}, {center_y}) "
+                    f"raw depth={depth_m:.3f} m"
+                )
+
         try:
+            annotated_image = draw_detections(
+                image,
+                detections,
+            )
+
             annotated_message = self.bridge.cv2_to_imgmsg(
                 annotated_image,
-                encoding="bgr8"
+                encoding="bgr8",
             )
-        except CvBridgeError as error:
+        except (ValueError, cv2.error, CvBridgeError) as error:
             self.get_logger().error(
-                f"Failed to create ROS image: {error}"
+                f"Failed to create annotated image: {error}"
             )
             return
 
@@ -189,6 +249,9 @@ class AppleDetectorNode(Node):
                 f"Processed {self.frame_count} images; "
                 f"detected {len(detections)} apples"
             )
+
+            for summary in depth_summaries:
+                self.get_logger().info(summary)
 
 
 def main(args=None):
