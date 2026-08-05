@@ -2,6 +2,7 @@ import cv2
 import rclpy
 
 from cv_bridge import CvBridge, CvBridgeError
+from geometry_msgs.msg import PointStamped
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
@@ -76,6 +77,18 @@ class AppleDetectorNode(Node):
         self.annotated_image_publisher = self.create_publisher(
             Image,
             "/apple_detector/image_annotated",
+            10,
+        )
+
+        self.ripe_point_publisher = self.create_publisher(
+            PointStamped,
+            "/apple_detector/ripe_point",
+            10,
+        )
+
+        self.unripe_point_publisher = self.create_publisher(
+            PointStamped,
+            "/apple_detector/unripe_point",
             10,
         )
 
@@ -262,6 +275,38 @@ class AppleDetectorNode(Node):
         except ValueError:
             return None
 
+    def publish_camera_point(
+            self,
+            maturity,
+            camera_point_m,
+            stamp,
+    ):
+        """根据成熟度发布相机坐标系下的苹果三维坐标"""
+        if camera_point_m is None:
+            return
+
+        if not self.camera_frame_id:
+            return
+
+        if maturity == "ripe":
+            publisher = self.ripe_point_publisher
+        elif maturity == "unripe":
+            publisher = self.unripe_point_publisher
+        else:
+            return
+
+        point_x, point_y, point_z = camera_point_m
+
+        point_message = PointStamped()
+        point_message.header.stamp = stamp
+        point_message.header.frame_id = self.camera_frame_id
+
+        point_message.point.x = float(point_x)
+        point_message.point.y = float(point_y)
+        point_message.point.z = float(point_z)
+
+        publisher.publish(point_message)
+
 
     def image_callback(self, message):
         """检测苹果，获取深度并计算相机坐标系三维坐标。"""
@@ -329,6 +374,12 @@ class AppleDetectorNode(Node):
             detection["depth_m"] = depth_m
             detection["depth_source"] = depth_source
             detection["camera_point_m"] = camera_point_m
+
+            self.publish_camera_point(
+                maturity=maturity,
+                camera_point_m=camera_point_m,
+                stamp=message.header.stamp,
+            )
 
             if depth_m is None:
                 depth_summaries.append(
