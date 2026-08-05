@@ -10,6 +10,9 @@ from qxh_robot_vision.apple_detection import (
     detect_apples,
     draw_detections,
 )
+from qxh_robot_vision.depth_history import (
+    DepthHistory,
+)
 from qxh_robot_vision.depth_projection import (
     is_valid_depth,
     sample_valid_depth,
@@ -40,6 +43,10 @@ class AppleDetectorNode(Node):
         self.frame_count = 0
         self.depth_message_count = 0
         self.camera_info_message_count = 0
+        self.depth_history = DepthHistory(
+            max_age_frames=15,
+            max_match_distance_px=20.0,
+        )
 
         # RGB 图像订阅
         self.image_subscription = self.create_subscription(
@@ -221,7 +228,7 @@ class AppleDetectorNode(Node):
 
 
     def image_callback(self, message):
-        """检测苹果，并读取带局部窗口回退的有效深度。"""
+        """检测苹果，并按中心、窗口、历史顺序获取深度。"""
         try:
             image = self.bridge.imgmsg_to_cv2(
                 message,
@@ -246,6 +253,7 @@ class AppleDetectorNode(Node):
         depth_summaries = []
 
         for detection in detections:
+            maturity = detection["maturity"]
             center_x, center_y = detection["center"]
 
             depth_m, depth_source = (
@@ -256,18 +264,38 @@ class AppleDetectorNode(Node):
                 )
             )
 
+            if depth_m is not None:
+                self.depth_history.update(
+                    maturity=maturity,
+                    center=(center_x, center_y),
+                    depth_m=depth_m,
+                    frame_index=self.frame_count,
+                )
+            else:
+                history_depth_m = (
+                    self.depth_history.get(
+                        maturity=maturity,
+                        center=(center_x, center_y),
+                        frame_index=self.frame_count,
+                    )
+                )
+
+                if history_depth_m is not None:
+                    depth_m = history_depth_m
+                    depth_source = "history"
+
             detection["depth_m"] = depth_m
             detection["depth_source"] = depth_source
 
             if depth_m is None:
                 depth_summaries.append(
-                    f"{detection['maturity']} "
+                    f"{maturity} "
                     f"center=({center_x}, {center_y}) "
                     "depth unavailable"
                 )
             else:
                 depth_summaries.append(
-                    f"{detection['maturity']} "
+                    f"{maturity} "
                     f"center=({center_x}, {center_y}) "
                     f"valid depth={depth_m:.3f} m "
                     f"source={depth_source}"
