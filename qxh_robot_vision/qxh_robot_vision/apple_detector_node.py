@@ -12,6 +12,7 @@ from qxh_robot_vision.apple_detection import (
 )
 from qxh_robot_vision.depth_projection import (
     is_valid_depth,
+    sample_valid_depth,
 )
 
 
@@ -185,9 +186,42 @@ class AppleDetectorNode(Node):
 
         return depth_m
 
+    def read_depth_with_fallback(
+            self,
+            pixel_x,
+            pixel_y,
+            window_size=5,
+    ):
+        """优先读取中心深度，失败时使用局部窗口中位数。"""
+        center_depth_m = self.read_depth_at_pixel(
+            pixel_x,
+            pixel_y,
+        )
+
+        if center_depth_m is not None:
+            return center_depth_m, "center"
+
+        if self.latest_depth_image is None:
+            return None, "unavailable"
+
+        try:
+            window_depth_m = sample_valid_depth(
+                depth_image=self.latest_depth_image,
+                pixel_x=pixel_x,
+                pixel_y=pixel_y,
+                window_size=window_size,
+                depth_encoding=self.latest_depth_encoding,
+                min_depth_m=0.1,
+                max_depth_m=10.0,
+            )
+        except ValueError:
+            return None, "unavailable"
+
+        return window_depth_m, "window"
+
 
     def image_callback(self, message):
-        """检测苹果，并读取每个苹果中心像素的有效深度。"""
+        """检测苹果，并读取带局部窗口回退的有效深度。"""
         try:
             image = self.bridge.imgmsg_to_cv2(
                 message,
@@ -214,12 +248,16 @@ class AppleDetectorNode(Node):
         for detection in detections:
             center_x, center_y = detection["center"]
 
-            depth_m = self.read_depth_at_pixel(
-                center_x,
-                center_y,
+            depth_m, depth_source = (
+                self.read_depth_with_fallback(
+                    center_x,
+                    center_y,
+                    window_size=5,
+                )
             )
 
             detection["depth_m"] = depth_m
+            detection["depth_source"] = depth_source
 
             if depth_m is None:
                 depth_summaries.append(
@@ -231,7 +269,8 @@ class AppleDetectorNode(Node):
                 depth_summaries.append(
                     f"{detection['maturity']} "
                     f"center=({center_x}, {center_y}) "
-                    f"valid depth={depth_m:.3f} m"
+                    f"valid depth={depth_m:.3f} m "
+                    f"source={depth_source}"
                 )
 
         try:
@@ -265,7 +304,7 @@ class AppleDetectorNode(Node):
             for summary in depth_summaries:
                 self.get_logger().info(summary)
 
-
+         
 def main(args=None):
     rclpy.init(args=args)
 

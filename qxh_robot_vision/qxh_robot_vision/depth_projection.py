@@ -53,49 +53,107 @@ def sample_valid_depth(
         pixel_x,
         pixel_y,
         window_size=5,
+        depth_encoding="32FC1",
+        min_depth_m=0.1,
+        max_depth_m=10.0,
 ):
-    """从目标中心领域中获取可靠深度"""
+    """在目标中心邻域内搜索有效深度，并返回米制中位数。"""
     if depth_image is None or depth_image.size == 0:
         raise ValueError("depth_image 不能为空")
 
     if depth_image.ndim != 2:
-        raise ValueError("depth_image 必须是单通道深度图")
+        raise ValueError(
+            "depth_image 必须是单通道深度图"
+        )
 
     if window_size < 1 or window_size % 2 == 0:
-        raise ValueError("window_size 必须是正奇数")
+        raise ValueError(
+            "window_size 必须是正奇数"
+        )
 
-    pixel_x = int(pixel_x)
-    pixel_y = int(pixel_y)
+    try:
+        pixel_x = int(pixel_x)
+        pixel_y = int(pixel_y)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "像素坐标必须能够转换为整数"
+        ) from error
 
     height, width = depth_image.shape
 
     if not 0 <= pixel_x < width:
-        raise ValueError("pixel_x 超出图像范围")
+        raise ValueError(
+            "pixel_x 超出图像范围"
+        )
 
     if not 0 <= pixel_y < height:
-        raise ValueError("pixel_y 超出图像范围")
+        raise ValueError(
+            "pixel_y 超出图像范围"
+        )
 
     half_window = window_size // 2
 
-    x_start = max(0, pixel_x - half_window)
-    x_end = min(width, pixel_x + half_window + 1)
+    x_start = max(
+        0,
+        pixel_x - half_window,
+    )
+    x_end = min(
+        width,
+        pixel_x + half_window + 1,
+    )
 
-    y_start = max(0, pixel_y - half_window)
-    y_end = min(height, pixel_y + half_window + 1)
+    y_start = max(
+        0,
+        pixel_y - half_window,
+    )
+    y_end = min(
+        height,
+        pixel_y + half_window + 1,
+    )
 
     depth_window = depth_image[
         y_start:y_end,
         x_start:x_end,
     ]
 
-    vaild_depths = depth_window[
-        np.isfinite(depth_window) & (depth_window > 0.0)
-    ]
+    encoding = str(depth_encoding).upper()
 
-    if vaild_depths.size == 0:
-        raise ValueError("目标领域内没有有效深度")
+    if encoding == "32FC1":
+        depth_window_m = depth_window.astype(
+            np.float32,
+            copy=False,
+        )
+    elif encoding == "16UC1":
+        depth_window_m = (
+            depth_window.astype(np.float32)
+            / 1000.0
+        )
+    else:
+        raise ValueError(
+            "仅支持 32FC1 和 16UC1 深度编码"
+        )
 
-    return float(np.median(vaild_depths))
+    valid_depths = np.array(
+        [
+            float(depth_value)
+            for depth_value in depth_window_m.flat
+            if is_valid_depth(
+                depth_value,
+                min_depth_m=min_depth_m,
+                max_depth_m=max_depth_m,
+            )
+        ],
+        dtype=np.float32,
+    )
+
+    if valid_depths.size == 0:
+        raise ValueError(
+            "目标邻域内没有有效深度"
+        )
+
+    return float(
+        np.median(valid_depths)
+    )
 
 
 def pixel_to_camera_point(

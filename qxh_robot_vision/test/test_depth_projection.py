@@ -163,4 +163,65 @@ def test_is_valid_depth_rejects_invalid_range():
             min_depth_m=10.0,
             max_depth_m=1.0,
         )
-        
+
+
+def test_sample_valid_depth_filters_invalid_range():
+    depth_image = np.array(
+        [
+            [np.nan, 0.05, 20.0],
+            [0.0, 0.0, 2.4],
+            [np.inf, -1.0, 2.6],
+        ],
+        dtype=np.float32,
+    )
+
+    depth_m = sample_valid_depth(
+        depth_image=depth_image,
+        pixel_x=1,
+        pixel_y=1,
+        window_size=3,
+        depth_encoding="32FC1",
+        min_depth_m=0.1,
+        max_depth_m=10.0,
+    )
+
+    assert depth_m == pytest.approx(2.5)
+
+
+def test_sample_valid_depth_converts_16uc1():
+    depth_image = np.array(
+        [
+            [0, 2400, 0],
+            [2500, 0, 2600],
+            [0, 0, 0],
+        ],
+        dtype=np.uint16,
+    )
+
+    depth_m = sample_valid_depth(
+        depth_image=depth_image,
+        pixel_x=1,
+        pixel_y=1,
+        window_size=3,
+        depth_encoding="16UC1",
+        min_depth_m=0.1,
+        max_depth_m=10.0,
+    )
+
+    assert depth_m == pytest.approx(2.5)
+
+
+def test_sample_valid_depth_rejects_unknown_encoding():
+    depth_image = np.ones(
+        (3, 3),
+        dtype=np.float32,
+    )
+
+    with pytest.raises(ValueError):
+        sample_valid_depth(
+            depth_image=depth_image,
+            pixel_x=1,
+            pixel_y=1,
+            window_size=3,
+            depth_encoding="bgr8",
+        )
