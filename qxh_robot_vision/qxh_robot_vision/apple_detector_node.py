@@ -15,6 +15,7 @@ from qxh_robot_vision.depth_history import (
 )
 from qxh_robot_vision.depth_projection import (
     is_valid_depth,
+    pixel_to_camera_point,
     sample_valid_depth,
 )
 
@@ -226,9 +227,44 @@ class AppleDetectorNode(Node):
 
         return window_depth_m, "window"
 
+    def project_pixel_to_camera(
+            self,
+            pixel_x,
+            pixel_y,
+            depth_m,
+    ):
+        """将像素坐标和深度转换为相机坐标系三维点"""
+        if depth_m is None:
+            return None
+
+        if self.camera_matrix is None:
+            return None
+
+        try:
+            pixel_x = int(pixel_x)
+            pixel_y = int(pixel_y)
+        except (TypeError, ValueError):
+            return None
+
+        if not 0 <= pixel_x < self.camera_info_width:
+            return None
+
+        if not 0 <= pixel_y < self.camera_info_height:
+            return None
+
+        try:
+            return pixel_to_camera_point(
+                pixel_x=pixel_x,
+                pixel_y=pixel_y,
+                depth=depth_m,
+                camera_matrix=self.camera_matrix,
+            )
+        except ValueError:
+            return None
+
 
     def image_callback(self, message):
-        """检测苹果，并按中心、窗口、历史顺序获取深度。"""
+        """检测苹果，获取深度并计算相机坐标系三维坐标。"""
         try:
             image = self.bridge.imgmsg_to_cv2(
                 message,
@@ -284,21 +320,44 @@ class AppleDetectorNode(Node):
                     depth_m = history_depth_m
                     depth_source = "history"
 
+            camera_point_m = self.project_pixel_to_camera(
+                pixel_x=center_x,
+                pixel_y=center_y,
+                depth_m=depth_m,
+            )
+
             detection["depth_m"] = depth_m
             detection["depth_source"] = depth_source
+            detection["camera_point_m"] = camera_point_m
 
             if depth_m is None:
                 depth_summaries.append(
                     f"{maturity} "
                     f"center=({center_x}, {center_y}) "
-                    "depth unavailable"
+                    "depth unavailable; "
+                    "camera point unavailable"
                 )
-            else:
+            elif camera_point_m is None:
                 depth_summaries.append(
                     f"{maturity} "
                     f"center=({center_x}, {center_y}) "
                     f"valid depth={depth_m:.3f} m "
-                    f"source={depth_source}"
+                    f"source={depth_source}; "
+                    "camera point unavailable"
+                )
+            else:
+                point_x, point_y, point_z = camera_point_m
+
+                depth_summaries.append(
+                    f"{maturity} "
+                    f"center=({center_x}, {center_y}) "
+                    f"valid depth={depth_m:.3f} m "
+                    f"source={depth_source}; "
+                    f"camera_point="
+                    f"({point_x:.3f}, "
+                    f"{point_y:.3f}, "
+                    f"{point_z:.3f}) m "
+                    f"frame={self.camera_frame_id}"
                 )
 
         try:
