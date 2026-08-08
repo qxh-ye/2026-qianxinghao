@@ -26,6 +26,8 @@ setup(
         'console_scripts': [
             "apple_detector_node = "
             "qxh_robot_vision.apple_detector_node:main",
+            "apple_point_transformer = "
+            "qxh_robot_vision.apple_point_transformer:main",
         ],
     },
 )
