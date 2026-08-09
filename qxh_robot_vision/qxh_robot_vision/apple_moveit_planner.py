@@ -57,6 +57,10 @@ class AppleMoveItPlanner(Node):
             "acceleration_scaling",
             0.10,
         )
+        self.declare_parameter(
+            "execute_plan",
+            False,
+        )
 
         self.planning_group = str(
             self.get_parameter(
@@ -103,6 +107,11 @@ class AppleMoveItPlanner(Node):
                 "acceleration_scaling"
             ).value
         )
+        self.execute_plan = bool(
+            self.get_parameter(
+                "execute_plan"
+            ).value
+        )
 
         self.move_group_client = ActionClient(
             self,
@@ -126,7 +135,8 @@ class AppleMoveItPlanner(Node):
             "Apple MoveIt planner started. "
             f"group={self.planning_group}, "
             f"end_effector={self.end_effector_link}, "
-            "plan_only=True"
+            f"execute_plan={self.execute_plan}, "
+            f"plan_only={not self.execute_plan}"
         )
 
     def create_plan_goal(self, target_pose):
@@ -263,7 +273,9 @@ class AppleMoveItPlanner(Node):
             goal_constraints
         )
 
-        goal.planning_options.plan_only = True
+        goal.planning_options.plan_only = (
+            not self.execute_plan
+        )
         goal.planning_options.look_around = False
         goal.planning_options.replan = False
         goal.planning_options.planning_scene_diff.is_diff = (
@@ -298,8 +310,14 @@ class AppleMoveItPlanner(Node):
 
         self.goal_sent = True
 
+        if self.execute_plan:
+            request_mode = "plan_and_execute"
+        else:
+            request_mode = "plan_only"
+
         self.get_logger().info(
-            "Sending plan-only request: "
+            "Sending MoveIt request: "
+            f"mode={request_mode}, "
             f"frame={message.header.frame_id}, "
             f"position=("
             f"{message.pose.position.x:.3f}, "
@@ -384,14 +402,24 @@ class AppleMoveItPlanner(Node):
         else:
             final_duration = 0.0
 
+        if self.execute_plan:
+            result_description = (
+                "planning and execution succeeded"
+            )
+        else:
+            result_description = (
+                "planning succeeded; "
+                "trajectory was NOT executed"
+            )
+
         self.get_logger().info(
-            "MoveIt planning succeeded; "
-            f"trajectory_points={point_count}, "
+            "MoveIt request succeeded; "
+            f"planned_points={point_count}, "
             f"planning_time="
             f"{result.planning_time:.3f}s, "
             f"trajectory_duration="
             f"{final_duration:.3f}s, "
-            "trajectory was NOT executed"
+            f"{result_description}"
         )
 
 
