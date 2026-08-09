@@ -30,6 +30,8 @@ setup(
             "qxh_robot_vision.apple_point_transformer:main",
             "apple_target_node = "
             "qxh_robot_vision.apple_target_node:main",
+            "apple_moveit_planner = "
+            "qxh_robot_vision.apple_moveit_planner:main"
         ],
     },
 )
