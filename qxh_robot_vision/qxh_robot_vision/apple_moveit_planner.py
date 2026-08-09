@@ -10,6 +10,12 @@ from moveit_msgs.msg import (
     OrientationConstraint,
     PositionConstraint,
 )
+from rclpy.qos import (
+    DurabilityPolicy,
+    QoSProfile,
+    ReliabilityPolicy,
+)
+from std_msgs.msg import String
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from shape_msgs.msg import SolidPrimitive
@@ -112,6 +118,19 @@ class AppleMoveItPlanner(Node):
                 "execute_plan"
             ).value
         )
+        status_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+
+        self.status_publisher = self.create_publisher(
+            String,
+            "/apple_picker/status",
+            status_qos,
+        )
+
+        self.last_status_message = ""
 
         self.move_group_client = ActionClient(
             self,
@@ -137,6 +156,47 @@ class AppleMoveItPlanner(Node):
             f"end_effector={self.end_effector_link}, "
             f"execute_plan={self.execute_plan}, "
             f"plan_only={not self.execute_plan}"
+        )
+
+        self.publish_status(
+            "WAITING_TARGET"
+        )
+
+    def publish_status(
+            self,
+            state,
+            detail="",
+    ):
+        """发布苹果采摘流程的当前状态。"""
+        state = str(state).strip()
+        detail = str(detail).strip()
+
+        if not state:
+            raise ValueError(
+                "state 不能为空"
+            )
+
+        if detail:
+            status_text = (
+                f"{state}: {detail}"
+            )
+        else:
+            status_text = state
+
+        if status_text == self.last_status_message:
+            return
+
+        status_message = String()
+        status_message.data = status_text
+
+        self.status_publisher.publish(
+            status_message
+        )
+
+        self.last_status_message = status_text
+
+        self.get_logger().info(
+            f"Picker status: {status_text}"
         )
 
     def create_plan_goal(self, target_pose):
@@ -310,6 +370,10 @@ class AppleMoveItPlanner(Node):
 
         self.goal_sent = True
 
+        self.publish_status(
+            "PLANNING"
+        )
+
         if self.execute_plan:
             request_mode = "plan_and_execute"
         else:
@@ -324,16 +388,44 @@ class AppleMoveItPlanner(Node):
             f"{message.pose.position.y:.3f}, "
             f"{message.pose.position.z:.3f})"
         )
-
         goal_future = (
             self.move_group_client.send_goal_async(
-                goal
+                goal,
+                feedback_callback=(
+                    self.moveit_feedback_callback
+                ),
             )
         )
 
         goal_future.add_done_callback(
             self.goal_response_callback
         )
+
+    def moveit_feedback_callback(
+            self,
+            feedback_message,
+    ):
+        """根据MoveIt反馈更新规划和执行状态。"""
+        moveit_state = str(
+            feedback_message.feedback.state
+        ).upper()
+
+        if "PLANNING" in moveit_state:
+            self.publish_status(
+                "PLANNING"
+            )
+            return
+
+        if (
+            self.execute_plan
+            and (
+                "MONITOR" in moveit_state
+                or "EXECUT" in moveit_state
+            )
+        ):
+            self.publish_status(
+                "EXECUTING"
+            )
 
     def goal_response_callback(self, future):
         """处理MoveIt是否接受规划请求。"""
@@ -343,11 +435,19 @@ class AppleMoveItPlanner(Node):
             self.get_logger().error(
                 f"Failed to send planning goal: {error}"
             )
+            self.publish_status(
+                "FAILED",
+                f"goal send error: {error}",
+            )
             return
 
         if not goal_handle.accepted:
             self.get_logger().error(
                 "MoveIt rejected the planning request"
+            )
+            self.publish_status(
+                "FAILED",
+                "MoveIt rejected the request",
             )
             return
 
@@ -367,8 +467,13 @@ class AppleMoveItPlanner(Node):
             wrapped_result = future.result()
         except Exception as error:
             self.get_logger().error(
-                f"Failed to receive planning result: {error}"
+                f"Failed to receive MoveIt result: {error}"
             )
+            self.publish_status(
+                "FAILED",
+                f"result error: {error}",
+            )
+            return
             return
 
         result = wrapped_result.result
@@ -376,11 +481,15 @@ class AppleMoveItPlanner(Node):
 
         if error_code != MoveItErrorCodes.SUCCESS:
             self.get_logger().error(
-                "MoveIt planning failed: "
+                "MoveIt request failed: "
                 f"error_code={error_code}"
             )
+            self.publish_status(
+                "FAILED",
+                f"MoveIt error code {error_code}",
+            )
             return
-
+        
         trajectory_points = (
             result.planned_trajectory
             .joint_trajectory
@@ -420,6 +529,20 @@ class AppleMoveItPlanner(Node):
             f"trajectory_duration="
             f"{final_duration:.3f}s, "
             f"{result_description}"
+        )
+
+        if self.execute_plan:
+            success_detail = (
+                "pregrasp execution completed"
+            )
+        else:
+            success_detail = (
+                "pregrasp planning completed"
+            )
+
+        self.publish_status(
+            "SUCCEEDED",
+            success_detail,
         )
 
 
