@@ -67,6 +67,14 @@ class AppleMoveItPlanner(Node):
             "execute_plan",
             False,
         )
+        self.declare_parameter(
+            "max_retries",
+            1,
+        )
+        self.declare_parameter(
+            "retry_delay_sec",
+            1.0,
+        )
 
         self.planning_group = str(
             self.get_parameter(
@@ -118,6 +126,29 @@ class AppleMoveItPlanner(Node):
                 "execute_plan"
             ).value
         )
+        self.max_retries = int(
+            self.get_parameter(
+                "max_retries"
+            ).value
+        )
+        self.retry_delay_sec = float(
+            self.get_parameter(
+                "retry_delay_sec"
+            ).value
+        )
+
+        if self.max_retries < 0:
+            raise ValueError(
+                "max_retries 不能小于 0"
+            )
+
+        if (
+            not math.isfinite(self.retry_delay_sec)
+            or self.retry_delay_sec <= 0.0
+        ):
+            raise ValueError(
+                "retry_delay_sec 必须是大于 0 的有限数值"
+            )
         status_qos = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
@@ -150,14 +181,19 @@ class AppleMoveItPlanner(Node):
         self.goal_sent = False
         self.server_warning_logged = False
 
+        self.latest_target_pose = None
+        self.retry_count = 0
+        self.retry_timer = None
+
         self.get_logger().info(
             "Apple MoveIt planner started. "
             f"group={self.planning_group}, "
             f"end_effector={self.end_effector_link}, "
             f"execute_plan={self.execute_plan}, "
-            f"plan_only={not self.execute_plan}"
+            f"plan_only={not self.execute_plan}, "
+            f"max_retries={self.max_retries}, "
+            f"retry_delay_sec={self.retry_delay_sec:.1f}"
         )
-
         self.publish_status(
             "WAITING_TARGET"
         )
@@ -348,7 +384,7 @@ class AppleMoveItPlanner(Node):
         return goal
 
     def pregrasp_pose_callback(self, message):
-        """收到第一个预抓取位姿后发送规划请求。"""
+        """接收本轮第一个预抓取位姿。"""
         if self.goal_sent:
             return
 
@@ -360,18 +396,43 @@ class AppleMoveItPlanner(Node):
                 self.server_warning_logged = True
             return
 
+        self.server_warning_logged = False
+        self.latest_target_pose = message
+        self.retry_count = 0
+        self.goal_sent = True
+
+        self.send_moveit_request(message)
+
+    def send_moveit_request(self, target_pose):
+        """根据目标位姿发送一次MoveIt请求。"""
+        if not self.move_group_client.server_is_ready():
+            self.get_logger().error(
+                "MoveIt /move_action server became unavailable"
+            )
+            self.schedule_retry(
+                "MoveIt action server is unavailable"
+            )
+            return
+
         try:
-            goal = self.create_plan_goal(message)
+            goal = self.create_plan_goal(target_pose)
         except (TypeError, ValueError) as error:
             self.get_logger().error(
                 f"Invalid pregrasp pose: {error}"
             )
+            self.publish_status(
+                "FAILED",
+                f"invalid target: {error}",
+            )
+            self.goal_sent = False
             return
 
-        self.goal_sent = True
+        attempt_number = self.retry_count + 1
+        total_attempts = self.max_retries + 1
 
         self.publish_status(
-            "PLANNING"
+            "PLANNING",
+            f"attempt {attempt_number}/{total_attempts}",
         )
 
         if self.execute_plan:
@@ -382,23 +443,94 @@ class AppleMoveItPlanner(Node):
         self.get_logger().info(
             "Sending MoveIt request: "
             f"mode={request_mode}, "
-            f"frame={message.header.frame_id}, "
+            f"attempt={attempt_number}/{total_attempts}, "
+            f"frame={target_pose.header.frame_id}, "
             f"position=("
-            f"{message.pose.position.x:.3f}, "
-            f"{message.pose.position.y:.3f}, "
-            f"{message.pose.position.z:.3f})"
+            f"{target_pose.pose.position.x:.3f}, "
+            f"{target_pose.pose.position.y:.3f}, "
+            f"{target_pose.pose.position.z:.3f})"
         )
-        goal_future = (
-            self.move_group_client.send_goal_async(
-                goal,
-                feedback_callback=(
-                    self.moveit_feedback_callback
-                ),
+
+        try:
+            goal_future = (
+                self.move_group_client.send_goal_async(
+                    goal,
+                    feedback_callback=(
+                        self.moveit_feedback_callback
+                    ),
+                )
             )
-        )
+        except Exception as error:
+            self.get_logger().error(
+                f"Failed to start MoveIt request: {error}"
+            )
+            self.schedule_retry(
+                f"request start error: {error}"
+            )
+            return
 
         goal_future.add_done_callback(
             self.goal_response_callback
+        )
+
+    def schedule_retry(self, failure_reason):
+        """失败后安排有限次数的延迟重试。"""
+        if self.retry_timer is not None:
+            return
+
+        if self.retry_count >= self.max_retries:
+            self.publish_status(
+                "FAILED",
+                (
+                    f"{failure_reason}; "
+                    f"retries exhausted "
+                    f"({self.retry_count}/"
+                    f"{self.max_retries})"
+                ),
+            )
+            return
+
+        self.retry_count += 1
+
+        self.get_logger().warning(
+            f"{failure_reason}; "
+            f"retry {self.retry_count}/"
+            f"{self.max_retries} will start in "
+            f"{self.retry_delay_sec:.1f}s"
+        )
+
+        self.publish_status(
+            "RETRYING",
+            (
+                f"retry {self.retry_count}/"
+                f"{self.max_retries} in "
+                f"{self.retry_delay_sec:.1f}s"
+            ),
+        )
+
+        self.retry_timer = self.create_timer(
+            self.retry_delay_sec,
+            self.retry_timer_callback,
+        )
+
+    def retry_timer_callback(self):
+        """定时器到期后重新发送缓存的目标。"""
+        timer = self.retry_timer
+        self.retry_timer = None
+
+        if timer is not None:
+            timer.cancel()
+            self.destroy_timer(timer)
+
+        if self.latest_target_pose is None:
+            self.publish_status(
+                "FAILED",
+                "no cached target for retry",
+            )
+            return
+
+        self.send_moveit_request(
+            self.latest_target_pose
         )
 
     def moveit_feedback_callback(
@@ -428,31 +560,29 @@ class AppleMoveItPlanner(Node):
             )
 
     def goal_response_callback(self, future):
-        """处理MoveIt是否接受规划请求。"""
+        """处理MoveIt是否接受本次请求。"""
         try:
             goal_handle = future.result()
         except Exception as error:
             self.get_logger().error(
-                f"Failed to send planning goal: {error}"
+                f"Failed to send MoveIt goal: {error}"
             )
-            self.publish_status(
-                "FAILED",
-                f"goal send error: {error}",
+            self.schedule_retry(
+                f"goal send error: {error}"
             )
             return
 
         if not goal_handle.accepted:
             self.get_logger().error(
-                "MoveIt rejected the planning request"
+                "MoveIt rejected the request"
             )
-            self.publish_status(
-                "FAILED",
-                "MoveIt rejected the request",
+            self.schedule_retry(
+                "MoveIt rejected the request"
             )
             return
 
         self.get_logger().info(
-            "MoveIt accepted the planning request"
+            "MoveIt accepted the request"
         )
 
         result_future = goal_handle.get_result_async()
@@ -462,18 +592,16 @@ class AppleMoveItPlanner(Node):
         )
 
     def plan_result_callback(self, future):
-        """读取MoveIt规划结果，但不执行轨迹。"""
+        """处理MoveIt规划或规划执行的最终结果。"""
         try:
             wrapped_result = future.result()
         except Exception as error:
             self.get_logger().error(
                 f"Failed to receive MoveIt result: {error}"
             )
-            self.publish_status(
-                "FAILED",
-                f"result error: {error}",
+            self.schedule_retry(
+                f"result error: {error}"
             )
-            return
             return
 
         result = wrapped_result.result
@@ -484,12 +612,11 @@ class AppleMoveItPlanner(Node):
                 "MoveIt request failed: "
                 f"error_code={error_code}"
             )
-            self.publish_status(
-                "FAILED",
-                f"MoveIt error code {error_code}",
+            self.schedule_retry(
+                f"MoveIt error code {error_code}"
             )
             return
-        
+
         trajectory_points = (
             result.planned_trajectory
             .joint_trajectory
@@ -515,10 +642,16 @@ class AppleMoveItPlanner(Node):
             result_description = (
                 "planning and execution succeeded"
             )
+            success_detail = (
+                "pregrasp execution completed"
+            )
         else:
             result_description = (
                 "planning succeeded; "
                 "trajectory was NOT executed"
+            )
+            success_detail = (
+                "pregrasp planning completed"
             )
 
         self.get_logger().info(
@@ -530,15 +663,6 @@ class AppleMoveItPlanner(Node):
             f"{final_duration:.3f}s, "
             f"{result_description}"
         )
-
-        if self.execute_plan:
-            success_detail = (
-                "pregrasp execution completed"
-            )
-        else:
-            success_detail = (
-                "pregrasp planning completed"
-            )
 
         self.publish_status(
             "SUCCEEDED",
