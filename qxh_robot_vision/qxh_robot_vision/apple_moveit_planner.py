@@ -15,7 +15,7 @@ from rclpy.qos import (
     QoSProfile,
     ReliabilityPolicy,
 )
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from shape_msgs.msg import SolidPrimitive
@@ -35,6 +35,29 @@ def get_next_motion_phase(current_phase):
         )
 
     return phase_transitions[current_phase]
+
+
+def get_grasp_result_action(
+        current_phase,
+        waiting_for_grasp_result,
+        grasp_succeeded,
+):
+    """根据当前状态和抓取结果决定继续撤退或重试抓取。"""
+    if not isinstance(grasp_succeeded, bool):
+        raise TypeError(
+            "grasp_succeeded 必须是 bool"
+        )
+
+    if (
+        current_phase != "grasp"
+        or not waiting_for_grasp_result
+    ):
+        return None
+
+    if grasp_succeeded:
+        return "retreat"
+
+    return "retry"
 
 
 class AppleMoveItPlanner(Node):
@@ -90,6 +113,10 @@ class AppleMoveItPlanner(Node):
         self.declare_parameter(
             "retry_delay_sec",
             1.0,
+        )
+        self.declare_parameter(
+            "grasp_result_timeout_sec",
+            3.0,
         )
 
         self.planning_group = str(
@@ -152,6 +179,11 @@ class AppleMoveItPlanner(Node):
                 "retry_delay_sec"
             ).value
         )
+        self.grasp_result_timeout_sec = float(
+            self.get_parameter(
+                "grasp_result_timeout_sec"
+            ).value
+        )
 
         if self.max_retries < 0:
             raise ValueError(
@@ -164,6 +196,17 @@ class AppleMoveItPlanner(Node):
         ):
             raise ValueError(
                 "retry_delay_sec 必须是大于 0 的有限数值"
+            )
+
+        if (
+            not math.isfinite(
+                self.grasp_result_timeout_sec
+            )
+            or self.grasp_result_timeout_sec <= 0.0
+        ):
+            raise ValueError(
+                "grasp_result_timeout_sec "
+                "必须是大于 0 的有限数值"
             )
         status_qos = QoSProfile(
             depth=1,
@@ -201,6 +244,15 @@ class AppleMoveItPlanner(Node):
             10,
         )
 
+        self.grasp_result_subscription = (
+            self.create_subscription(
+                Bool,
+                "/apple_picker/grasp_result",
+                self.grasp_result_callback,
+                10,
+            )
+        )
+
         self.goal_sent = False
         self.server_warning_logged = False
 
@@ -210,6 +262,8 @@ class AppleMoveItPlanner(Node):
         self.current_phase = ""
         self.retry_count = 0
         self.retry_timer = None
+        self.waiting_for_grasp_result = False
+        self.grasp_result_timeout_timer = None
 
         self.get_logger().info(
             "Apple MoveIt planner started. "
@@ -218,7 +272,9 @@ class AppleMoveItPlanner(Node):
             f"execute_plan={self.execute_plan}, "
             f"plan_only={not self.execute_plan}, "
             f"max_retries={self.max_retries}, "
-            f"retry_delay_sec={self.retry_delay_sec:.1f}"
+            f"retry_delay_sec={self.retry_delay_sec:.1f}, "
+            "grasp_result_timeout_sec="
+            f"{self.grasp_result_timeout_sec:.1f}"
         )
         self.publish_status(
             "WAITING_TARGET"
@@ -426,6 +482,85 @@ class AppleMoveItPlanner(Node):
 
         self.latest_grasp_pose = message
         self.try_start_sequence()
+
+    def grasp_result_callback(self, message):
+        """处理抓取执行器返回的成功或失败结果。"""
+        action = get_grasp_result_action(
+            self.current_phase,
+            self.waiting_for_grasp_result,
+            message.data,
+        )
+
+        if action is None:
+            self.get_logger().warning(
+                "Ignoring grasp result because the planner "
+                "is not waiting for it"
+            )
+            return
+
+        self.waiting_for_grasp_result = False
+        self.cancel_grasp_result_timeout()
+
+        if action == "retry":
+            self.schedule_retry(
+                "grasp result reported failure"
+            )
+            return
+
+        self.publish_status(
+            "GRASP_SUCCEEDED",
+            "grasp result confirmed",
+        )
+        self.current_phase = "retreat"
+        self.latest_target_pose = (
+            self.latest_pregrasp_pose
+        )
+        self.retry_count = 0
+
+        self.send_moveit_request(
+            self.latest_target_pose
+        )
+
+    def start_grasp_result_timeout(self):
+        """进入抓取结果等待状态并启动超时定时器。"""
+        self.cancel_grasp_result_timeout()
+        self.waiting_for_grasp_result = True
+
+        self.publish_status(
+            "WAITING_GRASP_RESULT",
+            (
+                "timeout="
+                f"{self.grasp_result_timeout_sec:.1f}s"
+            ),
+        )
+
+        self.grasp_result_timeout_timer = (
+            self.create_timer(
+                self.grasp_result_timeout_sec,
+                self.grasp_result_timeout_callback,
+            )
+        )
+
+    def cancel_grasp_result_timeout(self):
+        """取消并销毁当前抓取结果超时定时器。"""
+        timer = self.grasp_result_timeout_timer
+        self.grasp_result_timeout_timer = None
+
+        if timer is not None:
+            timer.cancel()
+            self.destroy_timer(timer)
+
+    def grasp_result_timeout_callback(self):
+        """抓取结果超时后按现有有限重试策略重试。"""
+        if not self.waiting_for_grasp_result:
+            self.cancel_grasp_result_timeout()
+            return
+
+        self.waiting_for_grasp_result = False
+        self.cancel_grasp_result_timeout()
+        self.schedule_retry(
+            "grasp result timeout"
+        )
 
     def try_start_sequence(self):
         """两条同帧目标位姿均可用时启动预抓取阶段。"""
@@ -741,13 +876,13 @@ class AppleMoveItPlanner(Node):
             )
             return
 
+        if completed_phase == "grasp":
+            self.start_grasp_result_timeout()
+            return
+
         if next_phase is not None:
-            if completed_phase == "pregrasp":
-                completed_status = "PREGRASP_SUCCEEDED"
-                next_target_pose = self.latest_grasp_pose
-            else:
-                completed_status = "GRASP_SUCCEEDED"
-                next_target_pose = self.latest_pregrasp_pose
+            completed_status = "PREGRASP_SUCCEEDED"
+            next_target_pose = self.latest_grasp_pose
 
             self.publish_status(
                 completed_status,
