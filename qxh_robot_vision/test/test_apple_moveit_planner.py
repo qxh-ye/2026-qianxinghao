@@ -5,6 +5,7 @@ from qxh_robot_vision.apple_moveit_planner import (
     create_fixed_place_pose,
     get_grasp_result_action,
     get_next_motion_phase,
+    get_release_result_action,
 )
 
 
@@ -134,6 +135,51 @@ def test_grasp_result_rejects_non_boolean_value():
     with pytest.raises(TypeError):
         get_grasp_result_action(
             "grasp",
+            True,
+            "true",
+        )
+
+
+@pytest.mark.parametrize(
+    "release_succeeded, expected_action",
+    [
+        (True, "succeeded"),
+        (False, "failed"),
+    ],
+)
+def test_release_result_selects_final_action(
+        release_succeeded,
+        expected_action,
+):
+    assert get_release_result_action(
+        "place",
+        True,
+        release_succeeded,
+    ) == expected_action
+
+
+@pytest.mark.parametrize(
+    "current_phase, waiting_for_release_result",
+    [
+        ("retreat", True),
+        ("place", False),
+    ],
+)
+def test_release_result_is_ignored_outside_waiting_state(
+        current_phase,
+        waiting_for_release_result,
+):
+    assert get_release_result_action(
+        current_phase,
+        waiting_for_release_result,
+        True,
+    ) is None
+
+
+def test_release_result_rejects_non_boolean_value():
+    with pytest.raises(TypeError):
+        get_release_result_action(
+            "place",
             True,
             "true",
         )

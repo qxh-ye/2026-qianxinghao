@@ -25,6 +25,20 @@ def normalize_suction_state(state):
     return normalized_state
 
 
+def get_suction_state_action(pending_command, state):
+    """将当前待执行命令和Gazebo状态映射成确认动作."""
+    normalized_state = normalize_suction_state(state)
+    confirmed_actions = {
+        ("initialize_detach", "detached"): "initialized",
+        ("attach", "attached"): "grasp_succeeded",
+        ("detach", "detached"): "release_succeeded",
+    }
+
+    return confirmed_actions.get(
+        (pending_command, normalized_state)
+    )
+
+
 class AppleSuctionController(Node):
     """将苹果抓取命令转换成Gazebo吸附命令。"""
 
@@ -39,6 +53,10 @@ class AppleSuctionController(Node):
             "attach_timeout_sec",
             3.0,
         )
+        self.declare_parameter(
+            "detach_timeout_sec",
+            3.0,
+        )
 
         self.command_period_sec = float(
             self.get_parameter(
@@ -48,6 +66,11 @@ class AppleSuctionController(Node):
         self.attach_timeout_sec = float(
             self.get_parameter(
                 "attach_timeout_sec"
+            ).value
+        )
+        self.detach_timeout_sec = float(
+            self.get_parameter(
+                "detach_timeout_sec"
             ).value
         )
 
@@ -67,6 +90,14 @@ class AppleSuctionController(Node):
                 "attach_timeout_sec 必须是大于 0 的有限数值"
             )
 
+        if (
+            not math.isfinite(self.detach_timeout_sec)
+            or self.detach_timeout_sec <= 0.0
+        ):
+            raise ValueError(
+                "detach_timeout_sec 必须是大于 0 的有限数值"
+            )
+
         self.attach_publisher = self.create_publisher(
             Empty,
             "/apple_picker/suction/attach",
@@ -82,11 +113,22 @@ class AppleSuctionController(Node):
             "/apple_picker/grasp_result",
             10,
         )
+        self.release_result_publisher = self.create_publisher(
+            Bool,
+            "/apple_picker/release_result",
+            10,
+        )
 
         self.close_subscription = self.create_subscription(
             Empty,
             "/apple_picker/gripper_close",
             self.close_callback,
+            10,
+        )
+        self.open_subscription = self.create_subscription(
+            Empty,
+            "/apple_picker/gripper_open",
+            self.open_callback,
             10,
         )
         self.state_subscription = self.create_subscription(
@@ -98,8 +140,9 @@ class AppleSuctionController(Node):
 
         self.initialized = False
         self.current_state = "unknown"
-        self.pending_command = "detach"
+        self.pending_command = "initialize_detach"
         self.attach_started_at = None
+        self.detach_started_at = None
         self.last_initialization_warning_at = time.monotonic()
 
         self.command_timer = self.create_timer(
@@ -111,7 +154,8 @@ class AppleSuctionController(Node):
             "Apple suction controller started. "
             "Initializing the simulation in detached state. "
             f"command_period_sec={self.command_period_sec:.2f}, "
-            f"attach_timeout_sec={self.attach_timeout_sec:.1f}"
+            f"attach_timeout_sec={self.attach_timeout_sec:.1f}, "
+            f"detach_timeout_sec={self.detach_timeout_sec:.1f}"
         )
 
     def publish_grasp_result(self, succeeded):
@@ -125,6 +169,17 @@ class AppleSuctionController(Node):
             f"success={message.data}"
         )
 
+    def publish_release_result(self, succeeded):
+        """发布Gazebo解除吸附操作的放置结果。"""
+        message = Bool()
+        message.data = bool(succeeded)
+        self.release_result_publisher.publish(message)
+
+        self.get_logger().info(
+            "Suction release result published: "
+            f"success={message.data}"
+        )
+
     def close_callback(self, _message):
         """收到抓取命令后开始等待Gazebo确认吸附。"""
         if not self.initialized:
@@ -134,10 +189,10 @@ class AppleSuctionController(Node):
             self.publish_grasp_result(False)
             return
 
-        if self.pending_command == "attach":
+        if self.pending_command is not None:
             self.get_logger().warning(
-                "Ignoring close command because an attach "
-                "operation is already in progress"
+                "Ignoring close command because another "
+                "suction operation is in progress"
             )
             return
 
@@ -149,6 +204,37 @@ class AppleSuctionController(Node):
             "Suction attach requested"
         )
 
+    def open_callback(self, _message):
+        """收到放置命令后开始等待Gazebo确认解除吸附。"""
+        if not self.initialized:
+            self.get_logger().error(
+                "Suction is not initialized in detached state"
+            )
+            self.publish_release_result(False)
+            return
+
+        if self.pending_command is not None:
+            self.get_logger().warning(
+                "Ignoring open command because another "
+                "suction operation is in progress"
+            )
+            return
+
+        if self.current_state != "attached":
+            self.get_logger().error(
+                "Cannot release apple because suction is not attached"
+            )
+            self.publish_release_result(False)
+            return
+
+        self.pending_command = "detach"
+        self.detach_started_at = time.monotonic()
+        self.detach_publisher.publish(Empty())
+
+        self.get_logger().info(
+            "Suction detach requested"
+        )
+
     def state_callback(self, message):
         """根据Gazebo固定关节状态确认初始化或抓取结果。"""
         try:
@@ -158,11 +244,12 @@ class AppleSuctionController(Node):
             return
 
         self.current_state = state
+        action = get_suction_state_action(
+            self.pending_command,
+            state,
+        )
 
-        if (
-            self.pending_command == "detach"
-            and state == "detached"
-        ):
+        if action == "initialized":
             self.pending_command = None
             self.initialized = True
             self.get_logger().info(
@@ -170,29 +257,51 @@ class AppleSuctionController(Node):
             )
             return
 
-        if (
-            self.pending_command == "attach"
-            and state == "attached"
-        ):
+        if action == "grasp_succeeded":
             self.pending_command = None
             self.attach_started_at = None
             self.publish_grasp_result(True)
+            return
+
+        if action == "release_succeeded":
+            self.pending_command = None
+            self.detach_started_at = None
+            self.publish_release_result(True)
 
     def command_timer_callback(self):
         """重复发送命令，避免Gazebo Transport发现阶段丢包。"""
-        if self.pending_command == "detach":
+        if self.pending_command == "initialize_detach":
             self.detach_publisher.publish(Empty())
 
             now = time.monotonic()
             if (
                 now - self.last_initialization_warning_at
-                >= self.attach_timeout_sec
+                >= self.detach_timeout_sec
             ):
                 self.get_logger().warning(
                     "Still waiting for Gazebo to confirm "
                     "detached suction state"
                 )
                 self.last_initialization_warning_at = now
+            return
+
+        if self.pending_command == "detach":
+            elapsed_sec = (
+                time.monotonic()
+                - self.detach_started_at
+            )
+
+            if elapsed_sec >= self.detach_timeout_sec:
+                self.pending_command = None
+                self.detach_started_at = None
+                self.get_logger().error(
+                    "Suction detach timed out after "
+                    f"{elapsed_sec:.1f}s"
+                )
+                self.publish_release_result(False)
+                return
+
+            self.detach_publisher.publish(Empty())
             return
 
         if self.pending_command != "attach":

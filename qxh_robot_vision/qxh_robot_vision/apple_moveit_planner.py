@@ -107,6 +107,29 @@ def get_grasp_result_action(
     return "retry"
 
 
+def get_release_result_action(
+        current_phase,
+        waiting_for_release_result,
+        release_succeeded,
+):
+    """根据放置阶段和解除吸附结果决定最终状态."""
+    if not isinstance(release_succeeded, bool):
+        raise TypeError(
+            "release_succeeded 必须是 bool"
+        )
+
+    if (
+        current_phase != "place"
+        or not waiting_for_release_result
+    ):
+        return None
+
+    if release_succeeded:
+        return "succeeded"
+
+    return "failed"
+
+
 class AppleMoveItPlanner(Node):
     """依次请求MoveIt完成预抓取、抓取、撤退和放置运动。"""
 
@@ -163,6 +186,10 @@ class AppleMoveItPlanner(Node):
         )
         self.declare_parameter(
             "grasp_result_timeout_sec",
+            3.0,
+        )
+        self.declare_parameter(
+            "release_result_timeout_sec",
             3.0,
         )
         self.declare_parameter(
@@ -243,6 +270,11 @@ class AppleMoveItPlanner(Node):
                 "grasp_result_timeout_sec"
             ).value
         )
+        self.release_result_timeout_sec = float(
+            self.get_parameter(
+                "release_result_timeout_sec"
+            ).value
+        )
         self.place_x_m = float(
             self.get_parameter(
                 "place_x_m"
@@ -283,6 +315,17 @@ class AppleMoveItPlanner(Node):
                 "必须是大于 0 的有限数值"
             )
 
+        if (
+            not math.isfinite(
+                self.release_result_timeout_sec
+            )
+            or self.release_result_timeout_sec <= 0.0
+        ):
+            raise ValueError(
+                "release_result_timeout_sec "
+                "必须是大于 0 的有限数值"
+            )
+
         if not all(
             math.isfinite(value)
             for value in (
@@ -309,6 +352,11 @@ class AppleMoveItPlanner(Node):
         self.gripper_close_publisher = self.create_publisher(
             Empty,
             "/apple_picker/gripper_close",
+            10,
+        )
+        self.gripper_open_publisher = self.create_publisher(
+            Empty,
+            "/apple_picker/gripper_open",
             10,
         )
 
@@ -344,6 +392,14 @@ class AppleMoveItPlanner(Node):
                 10,
             )
         )
+        self.release_result_subscription = (
+            self.create_subscription(
+                Bool,
+                "/apple_picker/release_result",
+                self.release_result_callback,
+                10,
+            )
+        )
 
         self.goal_sent = False
         self.server_warning_logged = False
@@ -356,6 +412,8 @@ class AppleMoveItPlanner(Node):
         self.retry_timer = None
         self.waiting_for_grasp_result = False
         self.grasp_result_timeout_timer = None
+        self.waiting_for_release_result = False
+        self.release_result_timeout_timer = None
 
         self.get_logger().info(
             "Apple MoveIt planner started. "
@@ -367,6 +425,8 @@ class AppleMoveItPlanner(Node):
             f"retry_delay_sec={self.retry_delay_sec:.1f}, "
             "grasp_result_timeout_sec="
             f"{self.grasp_result_timeout_sec:.1f}, "
+            "release_result_timeout_sec="
+            f"{self.release_result_timeout_sec:.1f}, "
             "place_position=("
             f"{self.place_x_m:.3f}, "
             f"{self.place_y_m:.3f}, "
@@ -660,6 +720,82 @@ class AppleMoveItPlanner(Node):
         self.cancel_grasp_result_timeout()
         self.schedule_retry(
             "grasp result timeout"
+        )
+
+    def release_result_callback(self, message):
+        """根据解除吸附结果完成或终止本轮放置流程。"""
+        action = get_release_result_action(
+            self.current_phase,
+            self.waiting_for_release_result,
+            message.data,
+        )
+
+        if action is None:
+            self.get_logger().warning(
+                "Ignoring release result because the planner "
+                "is not waiting for it"
+            )
+            return
+
+        self.waiting_for_release_result = False
+        self.cancel_release_result_timeout()
+
+        if action == "failed":
+            self.publish_status(
+                "FAILED",
+                "apple release reported failure",
+            )
+            return
+
+        self.publish_status(
+            "SUCCEEDED",
+            "apple placed and suction detached",
+        )
+
+    def start_release_result_timeout(self):
+        """到达放置位后发送打开命令并等待解除吸附结果。"""
+        self.cancel_release_result_timeout()
+        self.waiting_for_release_result = True
+
+        self.publish_status(
+            "WAITING_RELEASE_RESULT",
+            (
+                "timeout="
+                f"{self.release_result_timeout_sec:.1f}s"
+            ),
+        )
+
+        self.release_result_timeout_timer = (
+            self.create_timer(
+                self.release_result_timeout_sec,
+                self.release_result_timeout_callback,
+            )
+        )
+
+        self.gripper_open_publisher.publish(
+            Empty()
+        )
+
+    def cancel_release_result_timeout(self):
+        """取消并销毁当前解除吸附结果超时定时器。"""
+        timer = self.release_result_timeout_timer
+        self.release_result_timeout_timer = None
+
+        if timer is not None:
+            timer.cancel()
+            self.destroy_timer(timer)
+
+    def release_result_timeout_callback(self):
+        """解除吸附结果超时后终止本轮放置流程。"""
+        if not self.waiting_for_release_result:
+            self.cancel_release_result_timeout()
+            return
+
+        self.waiting_for_release_result = False
+        self.cancel_release_result_timeout()
+        self.publish_status(
+            "FAILED",
+            "apple release result timeout",
         )
 
     def try_start_sequence(self):
@@ -1041,6 +1177,7 @@ class AppleMoveItPlanner(Node):
                 else "place planning completed; apple remains attached"
             ),
         )
+        self.start_release_result_timeout()
 
 
 def main(args=None):
