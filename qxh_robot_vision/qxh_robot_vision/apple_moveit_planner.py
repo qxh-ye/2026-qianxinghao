@@ -26,7 +26,8 @@ def get_next_motion_phase(current_phase):
     phase_transitions = {
         "pregrasp": "grasp",
         "grasp": "retreat",
-        "retreat": None,
+        "retreat": "place",
+        "place": None,
     }
 
     if current_phase not in phase_transitions:
@@ -35,6 +36,52 @@ def get_next_motion_phase(current_phase):
         )
 
     return phase_transitions[current_phase]
+
+
+def create_fixed_place_pose(
+        reference_pose,
+        place_x_m,
+        place_y_m,
+        place_z_m,
+):
+    """使用参考姿态和固定基座坐标生成放置目标位姿."""
+    if not isinstance(reference_pose, PoseStamped):
+        raise TypeError(
+            "reference_pose 必须是 PoseStamped"
+        )
+
+    if not reference_pose.header.frame_id:
+        raise ValueError(
+            "reference_pose.header.frame_id 不能为空"
+        )
+
+    place_coordinates = (
+        float(place_x_m),
+        float(place_y_m),
+        float(place_z_m),
+    )
+
+    if not all(
+        math.isfinite(value)
+        for value in place_coordinates
+    ):
+        raise ValueError(
+            "固定放置坐标必须是有限数值"
+        )
+
+    place_pose = PoseStamped()
+    place_pose.header.stamp = reference_pose.header.stamp
+    place_pose.header.frame_id = (
+        reference_pose.header.frame_id
+    )
+    place_pose.pose.position.x = place_coordinates[0]
+    place_pose.pose.position.y = place_coordinates[1]
+    place_pose.pose.position.z = place_coordinates[2]
+    place_pose.pose.orientation = (
+        reference_pose.pose.orientation
+    )
+
+    return place_pose
 
 
 def get_grasp_result_action(
@@ -61,7 +108,7 @@ def get_grasp_result_action(
 
 
 class AppleMoveItPlanner(Node):
-    """依次请求MoveIt完成预抓取、抓取和撤退运动。"""
+    """依次请求MoveIt完成预抓取、抓取、撤退和放置运动。"""
 
     def __init__(self):
         super().__init__("apple_moveit_planner")
@@ -117,6 +164,18 @@ class AppleMoveItPlanner(Node):
         self.declare_parameter(
             "grasp_result_timeout_sec",
             3.0,
+        )
+        self.declare_parameter(
+            "place_x_m",
+            0.45,
+        )
+        self.declare_parameter(
+            "place_y_m",
+            0.35,
+        )
+        self.declare_parameter(
+            "place_z_m",
+            0.55,
         )
 
         self.planning_group = str(
@@ -184,6 +243,21 @@ class AppleMoveItPlanner(Node):
                 "grasp_result_timeout_sec"
             ).value
         )
+        self.place_x_m = float(
+            self.get_parameter(
+                "place_x_m"
+            ).value
+        )
+        self.place_y_m = float(
+            self.get_parameter(
+                "place_y_m"
+            ).value
+        )
+        self.place_z_m = float(
+            self.get_parameter(
+                "place_z_m"
+            ).value
+        )
 
         if self.max_retries < 0:
             raise ValueError(
@@ -207,6 +281,18 @@ class AppleMoveItPlanner(Node):
             raise ValueError(
                 "grasp_result_timeout_sec "
                 "必须是大于 0 的有限数值"
+            )
+
+        if not all(
+            math.isfinite(value)
+            for value in (
+                self.place_x_m,
+                self.place_y_m,
+                self.place_z_m,
+            )
+        ):
+            raise ValueError(
+                "固定放置坐标必须是有限数值"
             )
         status_qos = QoSProfile(
             depth=1,
@@ -280,7 +366,11 @@ class AppleMoveItPlanner(Node):
             f"max_retries={self.max_retries}, "
             f"retry_delay_sec={self.retry_delay_sec:.1f}, "
             "grasp_result_timeout_sec="
-            f"{self.grasp_result_timeout_sec:.1f}"
+            f"{self.grasp_result_timeout_sec:.1f}, "
+            "place_position=("
+            f"{self.place_x_m:.3f}, "
+            f"{self.place_y_m:.3f}, "
+            f"{self.place_z_m:.3f})"
         )
         self.publish_status(
             "WAITING_TARGET"
@@ -891,8 +981,39 @@ class AppleMoveItPlanner(Node):
             return
 
         if next_phase is not None:
-            completed_status = "PREGRASP_SUCCEEDED"
-            next_target_pose = self.latest_grasp_pose
+            if completed_phase == "pregrasp":
+                completed_status = "PREGRASP_SUCCEEDED"
+                next_target_pose = self.latest_grasp_pose
+            elif completed_phase == "retreat":
+                completed_status = "RETREAT_SUCCEEDED"
+
+                try:
+                    next_target_pose = create_fixed_place_pose(
+                        reference_pose=(
+                            self.latest_pregrasp_pose
+                        ),
+                        place_x_m=self.place_x_m,
+                        place_y_m=self.place_y_m,
+                        place_z_m=self.place_z_m,
+                    )
+                except (TypeError, ValueError) as error:
+                    self.get_logger().error(
+                        f"Invalid place pose: {error}"
+                    )
+                    self.publish_status(
+                        "FAILED",
+                        f"invalid place pose: {error}",
+                    )
+                    return
+            else:
+                self.publish_status(
+                    "FAILED",
+                    (
+                        "unsupported phase transition: "
+                        f"{completed_phase} -> {next_phase}"
+                    ),
+                )
+                return
 
             self.publish_status(
                 completed_status,
@@ -913,11 +1034,11 @@ class AppleMoveItPlanner(Node):
             return
 
         self.publish_status(
-            "SUCCEEDED",
+            "PLACE_REACHED",
             (
-                "retreat execution completed"
+                "place execution completed; apple remains attached"
                 if self.execute_plan
-                else "retreat planning completed"
+                else "place planning completed; apple remains attached"
             ),
         )
 
