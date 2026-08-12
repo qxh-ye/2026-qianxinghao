@@ -21,8 +21,24 @@ from rclpy.node import Node
 from shape_msgs.msg import SolidPrimitive
 
 
+def get_next_motion_phase(current_phase):
+    """返回抓取动作序列中的下一个阶段。"""
+    phase_transitions = {
+        "pregrasp": "grasp",
+        "grasp": "retreat",
+        "retreat": None,
+    }
+
+    if current_phase not in phase_transitions:
+        raise ValueError(
+            f"未知的运动阶段: {current_phase}"
+        )
+
+    return phase_transitions[current_phase]
+
+
 class AppleMoveItPlanner(Node):
-    """依次请求MoveIt运动到预抓取和抓取位姿。"""
+    """依次请求MoveIt完成预抓取、抓取和撤退运动。"""
 
     def __init__(self):
         super().__init__("apple_moveit_planner")
@@ -711,9 +727,30 @@ class AppleMoveItPlanner(Node):
             f"{result_description}"
         )
 
-        if self.current_phase == "pregrasp":
+        completed_phase = self.current_phase
+
+        try:
+            next_phase = get_next_motion_phase(
+                completed_phase
+            )
+        except ValueError as error:
+            self.get_logger().error(str(error))
             self.publish_status(
-                "PREGRASP_SUCCEEDED",
+                "FAILED",
+                str(error),
+            )
+            return
+
+        if next_phase is not None:
+            if completed_phase == "pregrasp":
+                completed_status = "PREGRASP_SUCCEEDED"
+                next_target_pose = self.latest_grasp_pose
+            else:
+                completed_status = "GRASP_SUCCEEDED"
+                next_target_pose = self.latest_pregrasp_pose
+
+            self.publish_status(
+                completed_status,
                 (
                     "execution completed"
                     if self.execute_plan
@@ -721,8 +758,8 @@ class AppleMoveItPlanner(Node):
                 ),
             )
 
-            self.current_phase = "grasp"
-            self.latest_target_pose = self.latest_grasp_pose
+            self.current_phase = next_phase
+            self.latest_target_pose = next_target_pose
             self.retry_count = 0
 
             self.send_moveit_request(
@@ -733,9 +770,9 @@ class AppleMoveItPlanner(Node):
         self.publish_status(
             "SUCCEEDED",
             (
-                "grasp approach execution completed"
+                "retreat execution completed"
                 if self.execute_plan
-                else "grasp approach planning completed"
+                else "retreat planning completed"
             ),
         )
 
