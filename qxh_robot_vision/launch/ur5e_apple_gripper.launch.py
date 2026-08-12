@@ -71,17 +71,34 @@ def generate_launch_description():
         output="screen",
     )
 
-    gripper_adapter = Node(
+    suction_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        arguments=[
+            (
+                "/apple_picker/suction/attach"
+                "@std_msgs/msg/Empty]ignition.msgs.Empty"
+            ),
+            (
+                "/apple_picker/suction/detach"
+                "@std_msgs/msg/Empty]ignition.msgs.Empty"
+            ),
+            (
+                "/apple_picker/suction/state"
+                "@std_msgs/msg/String[ignition.msgs.StringMsg"
+            ),
+        ],
+        output="screen",
+    )
+
+    suction_adapter = Node(
         package="qxh_robot_vision",
-        executable="apple_gripper_controller",
+        executable="apple_suction_controller",
         parameters=[
             {
                 "use_sim_time": True,
-                "gripper_action_name": (
-                    "/gripper_controller/gripper_cmd"
-                ),
-                "closed_position_m": 0.0,
-                "max_effort_n": 40.0,
+                "command_period_sec": 0.25,
+                "attach_timeout_sec": 3.0,
             }
         ],
         output="screen",
@@ -113,6 +130,7 @@ def generate_launch_description():
             ur_control,
             ur_moveit,
             gripper_controller_spawner,
-            gripper_adapter,
+            suction_bridge,
+            suction_adapter,
         ]
     )

@@ -52,7 +52,9 @@ setup(
             "apple_moveit_planner = "
             "qxh_robot_vision.apple_moveit_planner:main",
             "apple_gripper_controller = "
-            "qxh_robot_vision.apple_gripper_controller:main"
+            "qxh_robot_vision.apple_gripper_controller:main",
+            "apple_suction_controller = "
+            "qxh_robot_vision.apple_suction_controller:main",
         ],
     },
 )
