@@ -15,7 +15,7 @@ from rclpy.qos import (
     QoSProfile,
     ReliabilityPolicy,
 )
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool, Empty, String
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from shape_msgs.msg import SolidPrimitive
@@ -218,6 +218,12 @@ class AppleMoveItPlanner(Node):
             String,
             "/apple_picker/status",
             status_qos,
+        )
+
+        self.gripper_close_publisher = self.create_publisher(
+            Empty,
+            "/apple_picker/gripper_close",
+            10,
         )
 
         self.last_status_message = ""
@@ -539,6 +545,10 @@ class AppleMoveItPlanner(Node):
                 self.grasp_result_timeout_sec,
                 self.grasp_result_timeout_callback,
             )
+        )
+
+        self.gripper_close_publisher.publish(
+            Empty()
         )
 
     def cancel_grasp_result_timeout(self):
