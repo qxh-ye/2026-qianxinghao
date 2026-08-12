@@ -65,10 +65,28 @@
     </model>
 
     <model name="ripe_apple">
-      <static>true</static>
+      <static>false</static>
       <pose>0.70 -0.18 0.55 0 0 0</pose>
 
       <link name="link">
+        <!--
+          Keep the dynamic apple at its detection pose while detached.
+          The suction joint can still move it after attachment.
+        -->
+        <gravity>false</gravity>
+
+        <inertial>
+          <mass>0.15</mass>
+          <inertia>
+            <ixx>0.000384</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.000384</iyy>
+            <iyz>0</iyz>
+            <izz>0.000384</izz>
+          </inertia>
+        </inertial>
+
         <collision name="collision">
           <geometry>
             <sphere>

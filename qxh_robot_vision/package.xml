@@ -20,6 +20,16 @@
   <depend>cv_bridge</depend>
   <depend>python3-opencv</depend>
 
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>gripper_controllers</exec_depend>
+  <exec_depend>ign_ros2_control</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ur_description</exec_depend>
+  <exec_depend>ur_moveit_config</exec_depend>
+  <exec_depend>ur_simulation_gz</exec_depend>
+  <exec_depend>xacro</exec_depend>
+
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>

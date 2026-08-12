@@ -1,0 +1,128 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="$(arg name)">
+  <xacro:include filename="$(find ur_description)/urdf/ur.urdf.xacro"/>
+
+  <link name="gripper_base_link">
+    <visual>
+      <origin xyz="0.03 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.06 0.22 0.04"/>
+      </geometry>
+      <material name="gripper_gray">
+        <color rgba="0.25 0.25 0.25 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.03 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.06 0.22 0.04"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.03 0 0" rpy="0 0 0"/>
+      <mass value="0.30"/>
+      <inertia
+        ixx="0.00125" ixy="0" ixz="0"
+        iyy="0.00013" iyz="0" izz="0.00130"/>
+    </inertial>
+  </link>
+
+  <joint name="tool0_to_gripper" type="fixed">
+    <parent link="tool0"/>
+    <child link="gripper_base_link"/>
+    <origin xyz="0.03 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="gripper_fixed_finger_link">
+    <visual>
+      <origin xyz="0.06 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.12 0.02 0.04"/>
+      </geometry>
+      <material name="finger_blue">
+        <color rgba="0.1 0.35 0.8 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.06 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.12 0.02 0.04"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.06 0 0" rpy="0 0 0"/>
+      <mass value="0.10"/>
+      <inertia
+        ixx="0.00002" ixy="0" ixz="0"
+        iyy="0.00013" iyz="0" izz="0.00013"/>
+    </inertial>
+  </link>
+
+  <joint name="gripper_fixed_finger_joint" type="fixed">
+    <parent link="gripper_base_link"/>
+    <child link="gripper_fixed_finger_link"/>
+    <origin xyz="0.06 0.10 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="gripper_moving_finger_link">
+    <visual>
+      <origin xyz="0.06 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.12 0.02 0.04"/>
+      </geometry>
+      <material name="finger_blue"/>
+    </visual>
+    <collision>
+      <origin xyz="0.06 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.12 0.02 0.04"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.06 0 0" rpy="0 0 0"/>
+      <mass value="0.10"/>
+      <inertia
+        ixx="0.00002" ixy="0" ixz="0"
+        iyy="0.00013" iyz="0" izz="0.00013"/>
+    </inertial>
+  </link>
+
+  <joint name="gripper_finger_joint" type="prismatic">
+    <parent link="gripper_base_link"/>
+    <child link="gripper_moving_finger_link"/>
+    <origin xyz="0.06 0.08 0" rpy="0 0 0"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="0.0" upper="0.18" effort="80.0" velocity="0.10"/>
+    <dynamics damping="2.0" friction="0.2"/>
+  </joint>
+
+  <gazebo>
+    <plugin
+      filename="ignition-gazebo-detachable-joint-system"
+      name="ignition::gazebo::systems::DetachableJoint">
+      <parent_link>wrist_3_link</parent_link>
+      <child_model>ripe_apple</child_model>
+      <child_link>link</child_link>
+      <detach_topic>/apple_picker/suction/detach</detach_topic>
+      <attach_topic>/apple_picker/suction/attach</attach_topic>
+      <output_topic>/apple_picker/suction/state</output_topic>
+    </plugin>
+  </gazebo>
+
+  <ros2_control name="gripper_system" type="system">
+    <hardware>
+      <plugin>ign_ros2_control/IgnitionSystem</plugin>
+    </hardware>
+    <joint name="gripper_finger_joint">
+      <command_interface name="position">
+        <param name="min">0.0</param>
+        <param name="max">0.18</param>
+      </command_interface>
+      <state_interface name="position">
+        <param name="initial_value">0.18</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+  </ros2_control>
+</robot>
