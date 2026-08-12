@@ -6,11 +6,12 @@ from geometry_msgs.msg import PointStamped, PoseStamped
 from rclpy.node import Node
 
 
-def create_pregrasp_pose(
+def create_offset_pose(
         apple_point,
-        approach_distance_m,
+        offset_distance_m,
+        distance_name,
 ):
-    """根据苹果基座坐标生成预抓取位姿。"""
+    """根据苹果基座坐标和偏移距离生成末端目标位姿。"""
     if not isinstance(apple_point, PointStamped):
         raise TypeError(
             "apple_point 必须是 PointStamped"
@@ -22,22 +23,22 @@ def create_pregrasp_pose(
         )
 
     try:
-        approach_distance_m = float(
-            approach_distance_m
+        offset_distance_m = float(
+            offset_distance_m
         )
     except (TypeError, ValueError) as error:
         raise ValueError(
-            "approach_distance_m 必须是数值"
+            f"{distance_name} 必须是数值"
         ) from error
 
-    if not math.isfinite(approach_distance_m):
+    if not math.isfinite(offset_distance_m):
         raise ValueError(
-            "approach_distance_m 必须是有限值"
+            f"{distance_name} 必须是有限值"
         )
 
-    if approach_distance_m <= 0.0:
+    if offset_distance_m <= 0.0:
         raise ValueError(
-            "approach_distance_m 必须大于0"
+            f"{distance_name} 必须大于0"
         )
 
     point_x = float(apple_point.point.x)
@@ -52,36 +53,60 @@ def create_pregrasp_pose(
             "苹果坐标必须是有限值"
         )
 
-    if point_x <= approach_distance_m:
+    if point_x <= offset_distance_m:
         raise ValueError(
-            "苹果X坐标小于或等于预抓取距离"
+            f"苹果X坐标小于或等于{distance_name}"
         )
 
-    pregrasp_pose = PoseStamped()
+    target_pose = PoseStamped()
 
-    pregrasp_pose.header.stamp = (
+    target_pose.header.stamp = (
         apple_point.header.stamp
     )
-    pregrasp_pose.header.frame_id = (
+    target_pose.header.frame_id = (
         apple_point.header.frame_id
     )
 
-    pregrasp_pose.pose.position.x = (
-        point_x - approach_distance_m
+    target_pose.pose.position.x = (
+        point_x - offset_distance_m
     )
-    pregrasp_pose.pose.position.y = point_y
-    pregrasp_pose.pose.position.z = point_z
+    target_pose.pose.position.y = point_y
+    target_pose.pose.position.z = point_z
 
-    pregrasp_pose.pose.orientation.x = 0.0
-    pregrasp_pose.pose.orientation.y = 0.0
-    pregrasp_pose.pose.orientation.z = 0.0
-    pregrasp_pose.pose.orientation.w = 1.0
+    target_pose.pose.orientation.x = 0.0
+    target_pose.pose.orientation.y = 0.0
+    target_pose.pose.orientation.z = 0.0
+    target_pose.pose.orientation.w = 1.0
 
-    return pregrasp_pose
+    return target_pose
+
+
+def create_pregrasp_pose(
+        apple_point,
+        approach_distance_m,
+):
+    """根据苹果基座坐标生成预抓取位姿。"""
+    return create_offset_pose(
+        apple_point=apple_point,
+        offset_distance_m=approach_distance_m,
+        distance_name="预抓取距离",
+    )
+
+
+def create_grasp_pose(
+        apple_point,
+        grasp_offset_m,
+):
+    """根据苹果基座坐标生成抓取位姿。"""
+    return create_offset_pose(
+        apple_point=apple_point,
+        offset_distance_m=grasp_offset_m,
+        distance_name="抓取偏移距离",
+    )
 
 
 class AppleTargetNode(Node):
-    """接收成熟苹果坐标并生成预抓取位姿。"""
+    """接收成熟苹果坐标并生成预抓取和抓取位姿。"""
 
     def __init__(self):
         super().__init__("apple_target_node")
@@ -89,6 +114,11 @@ class AppleTargetNode(Node):
         self.declare_parameter(
             "approach_distance_m",
             0.25,
+        )
+
+        self.declare_parameter(
+            "grasp_offset_m",
+            0.10,
         )
 
         self.declare_parameter(
@@ -106,6 +136,17 @@ class AppleTargetNode(Node):
                 "approach_distance_m"
             ).value
         )
+
+        self.grasp_offset_m = float(
+            self.get_parameter(
+                "grasp_offset_m"
+            ).value
+        )
+
+        if self.grasp_offset_m >= self.approach_distance_m:
+            raise ValueError(
+                "grasp_offset_m 必须小于 approach_distance_m"
+            )
 
         self.expected_frame = str(
             self.get_parameter(
@@ -125,6 +166,12 @@ class AppleTargetNode(Node):
             10,
         )
 
+        self.grasp_publisher = self.create_publisher(
+            PoseStamped,
+            "/apple_picker/grasp_pose",
+            10,
+        )
+
         self.ripe_point_subscription = (
             self.create_subscription(
                 PointStamped,
@@ -140,12 +187,13 @@ class AppleTargetNode(Node):
             "Apple target node started. "
             f"approach_distance_m="
             f"{self.approach_distance_m:.3f}, "
+            f"grasp_offset_m={self.grasp_offset_m:.3f}, "
             f"expected_frame={self.expected_frame}, "
             f"publish_once={self.publish_once}"
         )
 
     def ripe_point_callback(self, message):
-        """接收成熟苹果坐标并发布预抓取位姿。"""
+        """接收成熟苹果坐标并发布预抓取和抓取位姿。"""
         if self.publish_once and self.published_count > 0:
             return
 
@@ -164,14 +212,21 @@ class AppleTargetNode(Node):
                     self.approach_distance_m
                 ),
             )
+            grasp_pose = create_grasp_pose(
+                apple_point=message,
+                grasp_offset_m=self.grasp_offset_m,
+            )
         except (TypeError, ValueError) as error:
             self.get_logger().warning(
-                f"Failed to create pregrasp pose: {error}"
+                f"Failed to create apple target poses: {error}"
             )
             return
 
         self.pregrasp_publisher.publish(
             pregrasp_pose
+        )
+        self.grasp_publisher.publish(
+            grasp_pose
         )
 
         self.published_count += 1
@@ -181,12 +236,16 @@ class AppleTargetNode(Node):
             or self.published_count % 30 == 0
         ):
             self.get_logger().info(
-                "Pregrasp pose published: "
+                "Apple target poses published: "
                 f"frame={pregrasp_pose.header.frame_id}, "
-                f"position=("
+                f"pregrasp=("
                 f"{pregrasp_pose.pose.position.x:.3f}, "
                 f"{pregrasp_pose.pose.position.y:.3f}, "
                 f"{pregrasp_pose.pose.position.z:.3f}), "
+                f"grasp=("
+                f"{grasp_pose.pose.position.x:.3f}, "
+                f"{grasp_pose.pose.position.y:.3f}, "
+                f"{grasp_pose.pose.position.z:.3f}), "
                 f"count={self.published_count}"
             )
 

@@ -22,7 +22,7 @@ from shape_msgs.msg import SolidPrimitive
 
 
 class AppleMoveItPlanner(Node):
-    """接收预抓取位姿并请求MoveIt只规划轨迹。"""
+    """依次请求MoveIt运动到预抓取和抓取位姿。"""
 
     def __init__(self):
         super().__init__("apple_moveit_planner")
@@ -178,10 +178,20 @@ class AppleMoveItPlanner(Node):
             )
         )
 
+        self.grasp_subscription = self.create_subscription(
+            PoseStamped,
+            "/apple_picker/grasp_pose",
+            self.grasp_pose_callback,
+            10,
+        )
+
         self.goal_sent = False
         self.server_warning_logged = False
 
+        self.latest_pregrasp_pose = None
+        self.latest_grasp_pose = None
         self.latest_target_pose = None
+        self.current_phase = ""
         self.retry_count = 0
         self.retry_timer = None
 
@@ -236,7 +246,7 @@ class AppleMoveItPlanner(Node):
         )
 
     def create_plan_goal(self, target_pose):
-        """根据预抓取位姿创建MoveGroup规划目标。"""
+        """根据当前阶段的目标位姿创建MoveGroup规划目标。"""
         if not isinstance(target_pose, PoseStamped):
             raise TypeError(
                 "target_pose 必须是PoseStamped"
@@ -338,7 +348,9 @@ class AppleMoveItPlanner(Node):
         orientation_constraint.weight = 1.0
 
         goal_constraints = Constraints()
-        goal_constraints.name = "apple_pregrasp"
+        goal_constraints.name = (
+            f"apple_{self.current_phase}"
+        )
         goal_constraints.position_constraints.append(
             position_constraint
         )
@@ -384,8 +396,39 @@ class AppleMoveItPlanner(Node):
         return goal
 
     def pregrasp_pose_callback(self, message):
-        """接收本轮第一个预抓取位姿。"""
+        """缓存本轮预抓取位姿，并尝试启动两阶段运动。"""
         if self.goal_sent:
+            return
+
+        self.latest_pregrasp_pose = message
+        self.try_start_sequence()
+
+    def grasp_pose_callback(self, message):
+        """缓存本轮抓取位姿，并尝试启动两阶段运动。"""
+        if self.goal_sent:
+            return
+
+        self.latest_grasp_pose = message
+        self.try_start_sequence()
+
+    def try_start_sequence(self):
+        """两条同帧目标位姿均可用时启动预抓取阶段。"""
+        if self.goal_sent:
+            return
+
+        if (
+            self.latest_pregrasp_pose is None
+            or self.latest_grasp_pose is None
+        ):
+            return
+
+        pregrasp_stamp = self.latest_pregrasp_pose.header.stamp
+        grasp_stamp = self.latest_grasp_pose.header.stamp
+
+        if (
+            pregrasp_stamp.sec != grasp_stamp.sec
+            or pregrasp_stamp.nanosec != grasp_stamp.nanosec
+        ):
             return
 
         if not self.move_group_client.server_is_ready():
@@ -397,11 +440,14 @@ class AppleMoveItPlanner(Node):
             return
 
         self.server_warning_logged = False
-        self.latest_target_pose = message
+        self.current_phase = "pregrasp"
+        self.latest_target_pose = self.latest_pregrasp_pose
         self.retry_count = 0
         self.goal_sent = True
 
-        self.send_moveit_request(message)
+        self.send_moveit_request(
+            self.latest_target_pose
+        )
 
     def send_moveit_request(self, target_pose):
         """根据目标位姿发送一次MoveIt请求。"""
@@ -418,7 +464,7 @@ class AppleMoveItPlanner(Node):
             goal = self.create_plan_goal(target_pose)
         except (TypeError, ValueError) as error:
             self.get_logger().error(
-                f"Invalid pregrasp pose: {error}"
+                f"Invalid {self.current_phase} pose: {error}"
             )
             self.publish_status(
                 "FAILED",
@@ -432,7 +478,10 @@ class AppleMoveItPlanner(Node):
 
         self.publish_status(
             "PLANNING",
-            f"attempt {attempt_number}/{total_attempts}",
+            (
+                f"phase={self.current_phase}, "
+                f"attempt {attempt_number}/{total_attempts}"
+            ),
         )
 
         if self.execute_plan:
@@ -443,6 +492,7 @@ class AppleMoveItPlanner(Node):
         self.get_logger().info(
             "Sending MoveIt request: "
             f"mode={request_mode}, "
+            f"phase={self.current_phase}, "
             f"attempt={attempt_number}/{total_attempts}, "
             f"frame={target_pose.header.frame_id}, "
             f"position=("
@@ -544,7 +594,8 @@ class AppleMoveItPlanner(Node):
 
         if "PLANNING" in moveit_state:
             self.publish_status(
-                "PLANNING"
+                "PLANNING",
+                f"phase={self.current_phase}",
             )
             return
 
@@ -556,7 +607,8 @@ class AppleMoveItPlanner(Node):
             )
         ):
             self.publish_status(
-                "EXECUTING"
+                "EXECUTING",
+                f"phase={self.current_phase}",
             )
 
     def goal_response_callback(self, future):
@@ -642,20 +694,15 @@ class AppleMoveItPlanner(Node):
             result_description = (
                 "planning and execution succeeded"
             )
-            success_detail = (
-                "pregrasp execution completed"
-            )
         else:
             result_description = (
                 "planning succeeded; "
                 "trajectory was NOT executed"
             )
-            success_detail = (
-                "pregrasp planning completed"
-            )
 
         self.get_logger().info(
             "MoveIt request succeeded; "
+            f"phase={self.current_phase}, "
             f"planned_points={point_count}, "
             f"planning_time="
             f"{result.planning_time:.3f}s, "
@@ -664,9 +711,32 @@ class AppleMoveItPlanner(Node):
             f"{result_description}"
         )
 
+        if self.current_phase == "pregrasp":
+            self.publish_status(
+                "PREGRASP_SUCCEEDED",
+                (
+                    "execution completed"
+                    if self.execute_plan
+                    else "planning completed"
+                ),
+            )
+
+            self.current_phase = "grasp"
+            self.latest_target_pose = self.latest_grasp_pose
+            self.retry_count = 0
+
+            self.send_moveit_request(
+                self.latest_target_pose
+            )
+            return
+
         self.publish_status(
             "SUCCEEDED",
-            success_detail,
+            (
+                "grasp approach execution completed"
+                if self.execute_plan
+                else "grasp approach planning completed"
+            ),
         )
 
 
