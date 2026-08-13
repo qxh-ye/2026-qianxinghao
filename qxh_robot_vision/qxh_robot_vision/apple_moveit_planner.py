@@ -130,6 +130,29 @@ def get_release_result_action(
     return "failed"
 
 
+def get_phase_gate_action(
+        completed_phase,
+        execute_plan,
+):
+    """根据运行模式决定抓取和放置阶段后的动作。"""
+    if not isinstance(execute_plan, bool):
+        raise TypeError(
+            "execute_plan 必须是 bool"
+        )
+
+    if completed_phase == "grasp":
+        if execute_plan:
+            return "wait_grasp_result"
+        return "advance_to_retreat"
+
+    if completed_phase == "place":
+        if execute_plan:
+            return "wait_release_result"
+        return "finish_plan_only"
+
+    return "advance"
+
+
 class AppleMoveItPlanner(Node):
     """依次请求MoveIt完成预抓取、抓取、撤退和放置运动。"""
 
@@ -1100,6 +1123,11 @@ class AppleMoveItPlanner(Node):
 
         completed_phase = self.current_phase
 
+        phase_gate_action = get_phase_gate_action(
+            completed_phase,
+            self.execute_plan,
+        )
+
         try:
             next_phase = get_next_motion_phase(
                 completed_phase
@@ -1112,14 +1140,27 @@ class AppleMoveItPlanner(Node):
             )
             return
 
-        if completed_phase == "grasp":
+        if phase_gate_action == "wait_grasp_result":
             self.start_grasp_result_timeout()
+            return
+
+        if phase_gate_action == "finish_plan_only":
+            self.publish_status(
+                "PLAN_ONLY_SUCCEEDED",
+                (
+                    "all motion phases planned; "
+                    "no motion or suction was executed"
+                ),
+            )
             return
 
         if next_phase is not None:
             if completed_phase == "pregrasp":
                 completed_status = "PREGRASP_SUCCEEDED"
                 next_target_pose = self.latest_grasp_pose
+            elif completed_phase == "grasp":
+                completed_status = "GRASP_PLAN_SUCCEEDED"
+                next_target_pose = self.latest_pregrasp_pose
             elif completed_phase == "retreat":
                 completed_status = "RETREAT_SUCCEEDED"
 
@@ -1171,11 +1212,7 @@ class AppleMoveItPlanner(Node):
 
         self.publish_status(
             "PLACE_REACHED",
-            (
-                "place execution completed; apple remains attached"
-                if self.execute_plan
-                else "place planning completed; apple remains attached"
-            ),
+            "place execution completed; apple remains attached",
         )
         self.start_release_result_timeout()
 

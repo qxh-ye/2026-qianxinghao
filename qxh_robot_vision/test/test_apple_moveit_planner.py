@@ -5,6 +5,7 @@ from qxh_robot_vision.apple_moveit_planner import (
     create_fixed_place_pose,
     get_grasp_result_action,
     get_next_motion_phase,
+    get_phase_gate_action,
     get_release_result_action,
 )
 
@@ -182,4 +183,34 @@ def test_release_result_rejects_non_boolean_value():
             "place",
             True,
             "true",
+        )
+
+
+@pytest.mark.parametrize(
+    "completed_phase, execute_plan, expected_action",
+    [
+        ("pregrasp", False, "advance"),
+        ("grasp", False, "advance_to_retreat"),
+        ("grasp", True, "wait_grasp_result"),
+        ("retreat", False, "advance"),
+        ("place", False, "finish_plan_only"),
+        ("place", True, "wait_release_result"),
+    ],
+)
+def test_phase_gate_separates_plan_and_execute_modes(
+        completed_phase,
+        execute_plan,
+        expected_action,
+):
+    assert get_phase_gate_action(
+        completed_phase,
+        execute_plan,
+    ) == expected_action
+
+
+def test_phase_gate_rejects_non_boolean_execute_plan():
+    with pytest.raises(TypeError):
+        get_phase_gate_action(
+            "grasp",
+            "false",
         )
