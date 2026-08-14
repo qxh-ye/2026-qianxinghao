@@ -1,6 +1,7 @@
 import math
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import rclpy
 
@@ -21,6 +22,86 @@ class AppleCandidate:
     apple_id: int
     point: PointStamped
     distance_m: float
+    detection_time: str = ""
+
+
+@dataclass
+class HarvestRecord:
+    """保存一颗苹果从检测到采摘终态的结构化结果."""
+
+    apple_id: int
+    detection_time: str
+    maturity: str
+    camera_3d_position: object
+    base_3d_position: tuple
+    grasp_attempts: int = 0
+    grasp_success: object = None
+    place_success: object = None
+    place_position: object = None
+    failure_reason: str = ""
+    duration: object = None
+
+
+def create_harvest_record(candidate):
+    """根据稳定编号后的成熟候选创建初始记录."""
+    if not isinstance(candidate, AppleCandidate):
+        raise TypeError("candidate 必须是 AppleCandidate")
+
+    if candidate.apple_id < 1:
+        raise ValueError("candidate.apple_id 必须大于等于 1")
+
+    detection_time = str(candidate.detection_time).strip()
+    if not detection_time:
+        raise ValueError("candidate.detection_time 不能为空")
+
+    return HarvestRecord(
+        apple_id=candidate.apple_id,
+        detection_time=detection_time,
+        maturity="ripe",
+        camera_3d_position=None,
+        base_3d_position=(
+            float(candidate.point.point.x),
+            float(candidate.point.point.y),
+            float(candidate.point.point.z),
+        ),
+    )
+
+
+def finish_harvest_record(
+        record,
+        terminal_status,
+        duration_sec,
+):
+    """使用采摘终态更新记录并保留失败原因."""
+    if not isinstance(record, HarvestRecord):
+        raise TypeError("record 必须是 HarvestRecord")
+
+    duration_sec = float(duration_sec)
+    if not math.isfinite(duration_sec) or duration_sec < 0.0:
+        raise ValueError("duration_sec 必须是非负有限值")
+
+    terminal_status = str(terminal_status).strip()
+    terminal_result = get_picker_terminal_result(terminal_status)
+    if terminal_result is None:
+        raise ValueError("terminal_status 不是采摘终态")
+
+    record.duration = duration_sec
+
+    if terminal_status.startswith("PLAN_ONLY_SUCCEEDED:"):
+        record.grasp_success = None
+        record.place_success = None
+        record.failure_reason = ""
+        return record
+
+    if terminal_result:
+        record.grasp_success = True
+        record.place_success = True
+        record.failure_reason = ""
+        return record
+
+    record.place_success = False
+    record.failure_reason = terminal_status.partition(":")[2].strip()
+    return record
 
 
 def point_distance_m(point):
@@ -333,6 +414,8 @@ class AppleTargetNode(Node):
         self.candidates = []
         self.processed_apple_ids = set()
         self.failed_apple_ids = set()
+        self.harvest_records = {}
+        self.harvest_started_at = {}
         self.active_candidate = None
         self.next_apple_id = 1
         self.collection_started_at = None
@@ -391,6 +474,9 @@ class AppleTargetNode(Node):
             apple_id=self.next_apple_id,
             point=message,
             distance_m=distance_m,
+            detection_time=datetime.now(
+                timezone.utc
+            ).isoformat(),
         )
         self.candidates.append(candidate)
         self.next_apple_id += 1
@@ -426,6 +512,9 @@ class AppleTargetNode(Node):
                 start=1,
             ):
                 candidate.apple_id = apple_id
+                self.harvest_records[apple_id] = (
+                    create_harvest_record(candidate)
+                )
 
             self.get_logger().info(
                 "Ripe apple candidate collection completed: "
@@ -474,6 +563,11 @@ class AppleTargetNode(Node):
             return
 
         self.active_candidate = candidate
+        record = self.harvest_records[candidate.apple_id]
+        record.grasp_attempts += 1
+        self.harvest_started_at[candidate.apple_id] = (
+            time.monotonic()
+        )
 
         apple_id_message = Int32()
         apple_id_message.data = candidate.apple_id
@@ -519,6 +613,18 @@ class AppleTargetNode(Node):
         self.processed_apple_ids.add(apple_id)
         if not terminal_result:
             self.failed_apple_ids.add(apple_id)
+
+        started_at = self.harvest_started_at.pop(
+            apple_id,
+            time.monotonic(),
+        )
+        finish_harvest_record(
+            self.harvest_records[apple_id],
+            terminal_status=message.data,
+            duration_sec=(
+                time.monotonic() - started_at
+            ),
+        )
 
         result_name = "SUCCEEDED" if terminal_result else "FAILED"
         status_message = String()

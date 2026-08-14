@@ -4,8 +4,11 @@ from geometry_msgs.msg import PointStamped
 
 from qxh_robot_vision.apple_target_node import (
     AppleCandidate,
+    HarvestRecord,
+    create_harvest_record,
     create_grasp_pose,
     create_pregrasp_pose,
+    finish_harvest_record,
     find_matching_candidate,
     get_picker_terminal_result,
     point_distance_m,
@@ -99,7 +102,74 @@ def make_candidate(apple_id, x, y, z):
         apple_id=apple_id,
         point=point,
         distance_m=point_distance_m(point),
+        detection_time="2026-08-14T01:02:03+00:00",
     )
+
+
+def test_harvest_record_starts_with_detected_candidate_data():
+    candidate = make_candidate(2, 0.70, -0.18, 0.55)
+
+    record = create_harvest_record(candidate)
+
+    assert record == HarvestRecord(
+        apple_id=2,
+        detection_time="2026-08-14T01:02:03+00:00",
+        maturity="ripe",
+        camera_3d_position=None,
+        base_3d_position=(0.70, -0.18, 0.55),
+    )
+
+
+def test_successful_harvest_record_saves_result_and_duration():
+    record = create_harvest_record(
+        make_candidate(1, 0.70, -0.18, 0.55)
+    )
+    record.grasp_attempts = 1
+
+    result = finish_harvest_record(
+        record,
+        terminal_status="SUCCEEDED: apple placed",
+        duration_sec=12.5,
+    )
+
+    assert result is record
+    assert record.grasp_success is True
+    assert record.place_success is True
+    assert record.failure_reason == ""
+    assert record.duration == pytest.approx(12.5)
+
+
+def test_failed_harvest_record_preserves_failure_reason():
+    record = create_harvest_record(
+        make_candidate(1, 0.70, -0.18, 0.55)
+    )
+
+    finish_harvest_record(
+        record,
+        terminal_status="FAILED: MoveIt error code -4",
+        duration_sec=3.25,
+    )
+
+    assert record.grasp_success is None
+    assert record.place_success is False
+    assert record.failure_reason == "MoveIt error code -4"
+    assert record.duration == pytest.approx(3.25)
+
+
+def test_plan_only_record_does_not_claim_physical_success():
+    record = create_harvest_record(
+        make_candidate(1, 0.70, -0.18, 0.55)
+    )
+
+    finish_harvest_record(
+        record,
+        terminal_status="PLAN_ONLY_SUCCEEDED: complete",
+        duration_sec=1.0,
+    )
+
+    assert record.grasp_success is None
+    assert record.place_success is None
+    assert record.failure_reason == ""
 
 
 def test_candidate_matching_deduplicates_nearby_measurements():
