@@ -150,9 +150,9 @@ def test_arm_controller_tracks_wrapped_joint_errors():
     }
 
 
-def test_suction_joint_matches_ripe_apple_model():
+def test_suction_joints_match_ripe_apple_models():
     robot = generate_robot_description()
-    plugin = robot.find(
+    plugins = robot.findall(
         "./gazebo/plugin"
         "[@name='ignition::gazebo::systems::DetachableJoint']"
     )
@@ -163,31 +163,35 @@ def test_suction_joint_matches_ripe_apple_model():
         / "ur5e_apple_rgbd_world.sdf"
     )
     world = ElementTree.parse(world_file).getroot().find("world")
-    ripe_apple = world.find("./model[@name='ripe_apple']")
-    apple_link = ripe_apple.find("./link[@name='link']")
 
-    assert plugin is not None
-    parent_link = plugin.findtext("parent_link")
-    parent_joint = robot.find(
-        f"./joint/child[@link='{parent_link}']/.."
-    )
+    assert len(plugins) == 2
 
-    assert parent_link == "wrist_3_link"
-    assert robot.find(f"./link[@name='{parent_link}']") is not None
-    assert parent_joint is not None
-    assert parent_joint.attrib["type"] != "fixed"
-    assert plugin.findtext("child_model") == ripe_apple.attrib["name"]
-    assert plugin.findtext("child_link") == apple_link.attrib["name"]
-    assert plugin.findtext("detach_topic") == (
-        "/apple_picker/suction/detach"
-    )
-    assert plugin.findtext("attach_topic") == (
-        "/apple_picker/suction/attach"
-    )
-    assert plugin.findtext("output_topic") == (
-        "/apple_picker/suction/state"
-    )
-    assert ripe_apple.findtext("static") == "false"
-    assert apple_link.findtext("gravity") == "false"
-    assert float(apple_link.findtext("./inertial/mass")) > 0.0
-    assert apple_link.find("collision") is None
+    for apple_id, plugin in enumerate(plugins, start=1):
+        ripe_apple = world.find(
+            f"./model[@name='ripe_apple_{apple_id}']"
+        )
+        apple_link = ripe_apple.find("./link[@name='link']")
+        parent_link = plugin.findtext("parent_link")
+        parent_joint = robot.find(
+            f"./joint/child[@link='{parent_link}']/.."
+        )
+
+        assert parent_link == "wrist_3_link"
+        assert robot.find(f"./link[@name='{parent_link}']") is not None
+        assert parent_joint is not None
+        assert parent_joint.attrib["type"] != "fixed"
+        assert plugin.findtext("child_model") == ripe_apple.attrib["name"]
+        assert plugin.findtext("child_link") == apple_link.attrib["name"]
+        assert plugin.findtext("detach_topic") == (
+            f"/apple_picker/suction/apple_{apple_id}/detach"
+        )
+        assert plugin.findtext("attach_topic") == (
+            f"/apple_picker/suction/apple_{apple_id}/attach"
+        )
+        assert plugin.findtext("output_topic") == (
+            f"/apple_picker/suction/apple_{apple_id}/state"
+        )
+        assert ripe_apple.findtext("static") == "false"
+        assert apple_link.findtext("gravity") == "false"
+        assert float(apple_link.findtext("./inertial/mass")) > 0.0
+        assert apple_link.find("collision") is None

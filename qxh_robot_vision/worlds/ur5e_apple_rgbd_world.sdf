@@ -65,7 +65,7 @@
       </link>
     </model>
 
-    <model name="ripe_apple">
+    <model name="ripe_apple_1">
       <static>false</static>
       <pose>0.70 -0.18 0.55 0 0 0</pose>
 
@@ -94,6 +94,40 @@
           an overlapping sphere collision would fight that fixed constraint
           and can drive the wrist joints into their limits.
         -->
+
+        <visual name="visual">
+          <geometry>
+            <sphere>
+              <radius>0.08</radius>
+            </sphere>
+          </geometry>
+
+          <material>
+            <ambient>1 0 0 1</ambient>
+            <diffuse>1 0 0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="ripe_apple_2">
+      <static>false</static>
+      <pose>0.72 0.0 0.70 0 0 0</pose>
+
+      <link name="link">
+        <gravity>false</gravity>
+
+        <inertial>
+          <mass>0.15</mass>
+          <inertia>
+            <ixx>0.000384</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.000384</iyy>
+            <iyz>0</iyz>
+            <izz>0.000384</izz>
+          </inertia>
+        </inertial>
 
         <visual name="visual">
           <geometry>

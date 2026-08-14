@@ -76,15 +76,27 @@ def generate_launch_description():
         executable="parameter_bridge",
         arguments=[
             (
-                "/apple_picker/suction/attach"
+                "/apple_picker/suction/apple_1/attach"
                 "@std_msgs/msg/Empty]ignition.msgs.Empty"
             ),
             (
-                "/apple_picker/suction/detach"
+                "/apple_picker/suction/apple_1/detach"
                 "@std_msgs/msg/Empty]ignition.msgs.Empty"
             ),
             (
-                "/apple_picker/suction/state"
+                "/apple_picker/suction/apple_1/state"
+                "@std_msgs/msg/String[ignition.msgs.StringMsg"
+            ),
+            (
+                "/apple_picker/suction/apple_2/attach"
+                "@std_msgs/msg/Empty]ignition.msgs.Empty"
+            ),
+            (
+                "/apple_picker/suction/apple_2/detach"
+                "@std_msgs/msg/Empty]ignition.msgs.Empty"
+            ),
+            (
+                "/apple_picker/suction/apple_2/state"
                 "@std_msgs/msg/String[ignition.msgs.StringMsg"
             ),
         ],
@@ -99,6 +111,7 @@ def generate_launch_description():
                 "use_sim_time": True,
                 "command_period_sec": 0.25,
                 "attach_timeout_sec": 3.0,
+                "apple_count": 2,
             }
         ],
         output="screen",

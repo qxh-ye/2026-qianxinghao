@@ -418,6 +418,15 @@ class AppleTargetNode(Node):
                 return
 
             self.collection_closed = True
+            self.candidates.sort(
+                key=lambda candidate: candidate.distance_m
+            )
+            for apple_id, candidate in enumerate(
+                self.candidates,
+                start=1,
+            ):
+                candidate.apple_id = apple_id
+
             self.get_logger().info(
                 "Ripe apple candidate collection completed: "
                 f"total={len(self.candidates)}"
@@ -466,6 +475,10 @@ class AppleTargetNode(Node):
 
         self.active_candidate = candidate
 
+        apple_id_message = Int32()
+        apple_id_message.data = candidate.apple_id
+        self.current_apple_id_publisher.publish(apple_id_message)
+
         self.pregrasp_publisher.publish(
             pregrasp_pose
         )
@@ -474,10 +487,6 @@ class AppleTargetNode(Node):
         )
 
         self.published_count += 1
-
-        apple_id_message = Int32()
-        apple_id_message.data = candidate.apple_id
-        self.current_apple_id_publisher.publish(apple_id_message)
 
         candidate_status = String()
         candidate_status.data = (
