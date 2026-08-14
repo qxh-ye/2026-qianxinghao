@@ -81,3 +81,11 @@ def test_pick_demo_launch_contains_required_data_connections():
 
     for connection in required_connections:
         assert connection in source
+
+
+def test_pick_demo_launch_places_ripe_apple_on_platform_b():
+    source = LAUNCH_FILE.read_text(encoding="utf-8")
+
+    assert '"place_x_m": 0.24' in source
+    assert '"place_y_m": 0.35' in source
+    assert '"place_z_m": 0.60' in source

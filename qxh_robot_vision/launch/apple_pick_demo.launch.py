@@ -133,6 +133,9 @@ def generate_launch_description():
                 "planning_group": "ur_manipulator",
                 "end_effector_link": "tool0",
                 "expected_frame": "base_link",
+                "place_x_m": 0.24,
+                "place_y_m": 0.35,
+                "place_z_m": 0.60,
             }
         ],
         output="screen",
