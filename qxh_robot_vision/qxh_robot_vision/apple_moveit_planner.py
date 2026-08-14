@@ -612,6 +612,26 @@ class AppleMoveItPlanner(Node):
             f"Picker status: {status_text}"
         )
 
+    def reset_sequence_state(self):
+        """清理终态数据，使节点能够接收下一颗苹果目标."""
+        self.cancel_grasp_result_timeout()
+        self.cancel_release_result_timeout()
+
+        retry_timer = self.retry_timer
+        self.retry_timer = None
+        if retry_timer is not None:
+            retry_timer.cancel()
+            self.destroy_timer(retry_timer)
+
+        self.goal_sent = False
+        self.latest_pregrasp_pose = None
+        self.latest_grasp_pose = None
+        self.latest_target_pose = None
+        self.current_phase = ""
+        self.retry_count = 0
+        self.waiting_for_grasp_result = False
+        self.waiting_for_release_result = False
+
     def create_plan_goal(self, target_pose):
         """根据当前阶段的目标位姿创建MoveGroup规划目标。"""
         if not isinstance(target_pose, PoseStamped):
@@ -897,6 +917,7 @@ class AppleMoveItPlanner(Node):
                 "FAILED",
                 "apple release reported failure",
             )
+            self.reset_sequence_state()
             return
 
         self.publish_status(
@@ -958,6 +979,7 @@ class AppleMoveItPlanner(Node):
             "FAILED",
             "apple release result timeout",
         )
+        self.reset_sequence_state()
 
     def try_start_sequence(self):
         """两条同帧目标位姿均可用时启动预抓取阶段。"""
@@ -1018,7 +1040,7 @@ class AppleMoveItPlanner(Node):
                 "FAILED",
                 f"invalid target: {error}",
             )
-            self.goal_sent = False
+            self.reset_sequence_state()
             return
 
         attempt_number = self.retry_count + 1
@@ -1086,6 +1108,7 @@ class AppleMoveItPlanner(Node):
                     f"{self.max_retries})"
                 ),
             )
+            self.reset_sequence_state()
             return
 
         self.retry_count += 1
@@ -1125,6 +1148,7 @@ class AppleMoveItPlanner(Node):
                 "FAILED",
                 "no cached target for retry",
             )
+            self.reset_sequence_state()
             return
 
         self.send_moveit_request(
@@ -1276,6 +1300,7 @@ class AppleMoveItPlanner(Node):
                 "FAILED",
                 str(error),
             )
+            self.reset_sequence_state()
             return
 
         if phase_gate_action == "wait_grasp_result":
@@ -1301,6 +1326,7 @@ class AppleMoveItPlanner(Node):
                     "no motion or suction was executed"
                 ),
             )
+            self.reset_sequence_state()
             return
 
         if phase_gate_action == "finish_sequence":
@@ -1311,6 +1337,7 @@ class AppleMoveItPlanner(Node):
                     "and robot returned to safe pose"
                 ),
             )
+            self.reset_sequence_state()
             return
 
         if next_phase is not None:
@@ -1340,6 +1367,7 @@ class AppleMoveItPlanner(Node):
                         "FAILED",
                         f"invalid place pose: {error}",
                     )
+                    self.reset_sequence_state()
                     return
             elif completed_phase == "place":
                 completed_status = "PLACE_PLAN_SUCCEEDED"
@@ -1352,6 +1380,7 @@ class AppleMoveItPlanner(Node):
                         f"{completed_phase} -> {next_phase}"
                     ),
                 )
+                self.reset_sequence_state()
                 return
 
             self.publish_status(
@@ -1376,6 +1405,7 @@ class AppleMoveItPlanner(Node):
             "FAILED",
             f"unsupported terminal phase: {completed_phase}",
         )
+        self.reset_sequence_state()
 
 
 def main(args=None):

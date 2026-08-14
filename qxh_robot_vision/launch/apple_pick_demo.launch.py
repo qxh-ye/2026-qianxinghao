@@ -115,6 +115,8 @@ def generate_launch_description():
                 "grasp_offset_m": 0.10,
                 "expected_frame": "base_link",
                 "publish_once": False,
+                "candidate_collection_sec": 1.0,
+                "candidate_match_distance_m": 0.10,
             }
         ],
         output="screen",
