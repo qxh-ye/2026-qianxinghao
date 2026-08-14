@@ -1,6 +1,7 @@
 import math
 
 import cv2
+import numpy as np
 
 
 def create_color_masks(bgr_image):
@@ -83,14 +84,36 @@ def extract_detections(
         min_circularity=0.6,
 ):
     """从二值掩膜中提取满足面积和圆度条件的目标"""
+    contour_properties = _extract_valid_contour_properties(
+        mask=mask,
+        min_area=min_area,
+        min_circularity=min_circularity,
+    )
+
+    if not maturity:
+        raise ValueError("maturity 不能为空")
+
+    detections = []
+
+    for _, properties in contour_properties:
+        detection = dict(properties)
+        detection["maturity"] = maturity
+        detections.append(detection)
+
+    return detections
+
+
+def _extract_valid_contour_properties(
+        mask,
+        min_area,
+        min_circularity,
+):
+    """提取有效轮廓及其几何属性."""
     if mask is None or mask.size == 0:
         raise ValueError("mask 不能为空")
 
     if len(mask.shape) != 2:
         raise ValueError("mask 必须是单通道图像")
-
-    if not maturity:
-        raise ValueError("maturity 不能为空")
 
     if min_area <= 0:
         raise ValueError("min_area 必须大于 0")
@@ -104,7 +127,7 @@ def extract_detections(
         cv2.CHAIN_APPROX_SIMPLE,
     )
 
-    detections = []
+    contour_properties = []
 
     for contour in contours:
         area = float(cv2.contourArea(contour))
@@ -126,18 +149,103 @@ def extract_detections(
 
         (center_x, center_y), radius = cv2.minEnclosingCircle(contour)
 
-        detections.append({
-            "maturity": maturity,
+        properties = {
             "center": (int(round(center_x)), int(round(center_y))),
             "radius": int(round(radius)),
             "area": area,
             "circularity": circularity,
-        })
+        }
 
-    detections.sort(
-        key=lambda detection: detection["area"],
+        contour_properties.append((contour, properties))
+
+    contour_properties.sort(
+        key=lambda item: item[1]["area"],
         reverse=True,
     )
+
+    return contour_properties
+
+
+def classify_maturity(red_ratio):
+    """根据苹果区域中的红色像素比例返回三级成熟度."""
+    try:
+        red_ratio = float(red_ratio)
+    except (TypeError, ValueError) as error:
+        raise ValueError("red_ratio 必须是数值") from error
+
+    if not math.isfinite(red_ratio):
+        raise ValueError("red_ratio 必须是有限值")
+
+    if not 0.0 <= red_ratio <= 1.0:
+        raise ValueError("red_ratio 必须位于 0 到 1 之间")
+
+    if red_ratio >= 0.80:
+        return "ripe"
+
+    if red_ratio >= 0.40:
+        return "half_ripe"
+
+    return "unripe"
+
+
+def extract_classified_detections(
+        candidate_mask,
+        red_mask,
+        min_area=500.0,
+        min_circularity=0.6,
+):
+    """提取苹果轮廓并按轮廓内部红色占比分类."""
+    if red_mask is None or red_mask.size == 0:
+        raise ValueError("red_mask 不能为空")
+
+    if len(red_mask.shape) != 2:
+        raise ValueError("red_mask 必须是单通道图像")
+
+    if candidate_mask.shape != red_mask.shape:
+        raise ValueError("candidate_mask 与 red_mask 形状必须一致")
+
+    contour_properties = _extract_valid_contour_properties(
+        mask=candidate_mask,
+        min_area=min_area,
+        min_circularity=min_circularity,
+    )
+
+    detections = []
+
+    for contour, properties in contour_properties:
+        contour_mask = np.zeros_like(candidate_mask)
+        cv2.drawContours(
+            contour_mask,
+            [contour],
+            -1,
+            255,
+            -1,
+        )
+
+        apple_pixels = cv2.countNonZero(
+            cv2.bitwise_and(
+                candidate_mask,
+                contour_mask,
+            )
+        )
+
+        if apple_pixels <= 0:
+            continue
+
+        red_pixels = cv2.countNonZero(
+            cv2.bitwise_and(
+                red_mask,
+                contour_mask,
+            )
+        )
+        red_ratio = red_pixels / apple_pixels
+
+        detection = dict(properties)
+        detection["red_ratio"] = red_ratio
+        detection["maturity"] = classify_maturity(
+            red_ratio
+        )
+        detections.append(detection)
 
     return detections
 
@@ -151,31 +259,25 @@ def detect_apples(
     """组合颜色分割、掩膜清理和轮廓筛选, 检测图像中的苹果"""
     masks = create_color_masks(bgr_image)
 
-    detections = []
-
-    for maturity, mask in masks.items():
-        cleaned_mask = clean_mask(
-            mask,
-            kernel_size=kernel_size,
-        )
-
-        color_detections = extract_detections(
-            cleaned_mask,
-            maturity=maturity,
-            min_area=min_area,
-            min_circularity=min_circularity,
-        )
-
-        detections.extend(
-            color_detections
-        )
-
-    detections.sort(
-        key=lambda detection: detection["area"],
-        reverse=True,
+    candidate_mask = cv2.bitwise_or(
+        masks["ripe"],
+        masks["unripe"],
+    )
+    cleaned_candidate_mask = clean_mask(
+        candidate_mask,
+        kernel_size=kernel_size,
+    )
+    red_mask = cv2.bitwise_and(
+        masks["ripe"],
+        cleaned_candidate_mask,
     )
 
-    return detections
+    return extract_classified_detections(
+        candidate_mask=cleaned_candidate_mask,
+        red_mask=red_mask,
+        min_area=min_area,
+        min_circularity=min_circularity,
+    )
 
 
 def draw_detections(bgr_image, detections):
@@ -193,6 +295,7 @@ def draw_detections(bgr_image, detections):
 
     maturity_colors = {
         "ripe": (0, 0, 255),  # 红色
+        "half_ripe": (0, 165, 255),  # 橙色
         "unripe": (0, 255, 0),  # 绿色
     }
 
@@ -235,10 +338,14 @@ def draw_detections(bgr_image, detections):
             -1,  # 实心
         )
 
-        label = (
-            f"{maturity}: "
-            f"({center_x}, {center_y})"
-        )
+        red_ratio = detection.get("red_ratio")
+
+        if red_ratio is None:
+            label = maturity
+        else:
+            label = f"{maturity} {red_ratio:.0%}"
+
+        label = f"{label}: ({center_x}, {center_y})"
 
         text_position = (
             max(0, center_x - radius),
