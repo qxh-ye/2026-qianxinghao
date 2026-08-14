@@ -5,6 +5,7 @@ import rclpy
 from geometry_msgs.msg import Pose, PoseStamped
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import (
+    CollisionObject,
     Constraints,
     MoveItErrorCodes,
     OrientationConstraint,
@@ -21,13 +22,123 @@ from rclpy.node import Node
 from shape_msgs.msg import SolidPrimitive
 
 
+def create_ground_collision_objects(frame_id):
+    """创建避开机械臂底座的四块仿真地面碰撞体。"""
+    if not isinstance(frame_id, str):
+        raise TypeError("frame_id 必须是 str")
+
+    if not frame_id:
+        raise ValueError("frame_id 不能为空")
+
+    ground_size_m = 10.0
+    base_clearance_m = 0.25
+    ground_thickness_m = 0.10
+    outer_half_m = ground_size_m / 2.0
+    strip_length_m = outer_half_m - base_clearance_m
+    strip_center_m = (
+        outer_half_m + base_clearance_m
+    ) / 2.0
+
+    strip_specs = (
+        (
+            "positive_x",
+            strip_center_m,
+            0.0,
+            strip_length_m,
+            ground_size_m,
+        ),
+        (
+            "negative_x",
+            -strip_center_m,
+            0.0,
+            strip_length_m,
+            ground_size_m,
+        ),
+        (
+            "positive_y",
+            0.0,
+            strip_center_m,
+            2.0 * base_clearance_m,
+            strip_length_m,
+        ),
+        (
+            "negative_y",
+            0.0,
+            -strip_center_m,
+            2.0 * base_clearance_m,
+            strip_length_m,
+        ),
+    )
+
+    collision_objects = []
+
+    for object_suffix, center_x, center_y, size_x, size_y in (
+            strip_specs
+    ):
+        ground_box = SolidPrimitive()
+        ground_box.type = SolidPrimitive.BOX
+        ground_box.dimensions = [
+            size_x,
+            size_y,
+            ground_thickness_m,
+        ]
+
+        ground_pose = Pose()
+        ground_pose.position.x = center_x
+        ground_pose.position.y = center_y
+        ground_pose.position.z = -ground_thickness_m / 2.0
+        ground_pose.orientation.w = 1.0
+
+        collision_object = CollisionObject()
+        collision_object.header.frame_id = frame_id
+        collision_object.id = (
+            f"simulation_ground_{object_suffix}"
+        )
+        collision_object.primitives.append(ground_box)
+        collision_object.primitive_poses.append(ground_pose)
+        collision_object.operation = CollisionObject.ADD
+
+        collision_objects.append(collision_object)
+
+    return collision_objects
+
+
+def create_unripe_apple_collision_object(frame_id):
+    """创建包含夹爪安全余量的未成熟苹果障碍物。"""
+    if not isinstance(frame_id, str):
+        raise TypeError("frame_id 必须是 str")
+
+    if not frame_id:
+        raise ValueError("frame_id 不能为空")
+
+    apple_sphere = SolidPrimitive()
+    apple_sphere.type = SolidPrimitive.SPHERE
+    apple_sphere.dimensions = [0.20]
+
+    apple_pose = Pose()
+    apple_pose.position.x = 0.70
+    apple_pose.position.y = 0.18
+    apple_pose.position.z = 0.55
+    apple_pose.orientation.w = 1.0
+
+    collision_object = CollisionObject()
+    collision_object.header.frame_id = frame_id
+    collision_object.id = "simulation_unripe_apple"
+    collision_object.primitives.append(apple_sphere)
+    collision_object.primitive_poses.append(apple_pose)
+    collision_object.operation = CollisionObject.ADD
+
+    return collision_object
+
+
 def get_next_motion_phase(current_phase):
     """返回抓取动作序列中的下一个阶段。"""
     phase_transitions = {
         "pregrasp": "grasp",
         "grasp": "retreat",
         "retreat": "place",
-        "place": None,
+        "place": "return",
+        "return": None,
     }
 
     if current_phase not in phase_transitions:
@@ -125,7 +236,7 @@ def get_release_result_action(
         return None
 
     if release_succeeded:
-        return "succeeded"
+        return "return"
 
     return "failed"
 
@@ -148,13 +259,18 @@ def get_phase_gate_action(
     if completed_phase == "place":
         if execute_plan:
             return "wait_release_result"
+        return "advance_to_return"
+
+    if completed_phase == "return":
+        if execute_plan:
+            return "finish_sequence"
         return "finish_plan_only"
 
     return "advance"
 
 
 class AppleMoveItPlanner(Node):
-    """依次请求MoveIt完成预抓取、抓取、撤退和放置运动。"""
+    """请求 MoveIt 完成抓取、放置和返回运动。"""
 
     def __init__(self):
         super().__init__("apple_moveit_planner")
@@ -643,6 +759,19 @@ class AppleMoveItPlanner(Node):
         goal.planning_options.planning_scene_diff.robot_state.is_diff = (
             True
         )
+        planning_world = (
+            goal.planning_options.planning_scene_diff.world
+        )
+        planning_world.collision_objects.extend(
+            create_ground_collision_objects(
+                self.expected_frame
+            )
+        )
+        planning_world.collision_objects.append(
+            create_unripe_apple_collision_object(
+                self.expected_frame
+            )
+        )
 
         return goal
 
@@ -771,12 +900,21 @@ class AppleMoveItPlanner(Node):
             return
 
         self.publish_status(
-            "SUCCEEDED",
+            "RELEASE_SUCCEEDED",
             "apple placed and suction detached",
+        )
+        self.current_phase = "return"
+        self.latest_target_pose = (
+            self.latest_pregrasp_pose
+        )
+        self.retry_count = 0
+
+        self.send_moveit_request(
+            self.latest_target_pose
         )
 
     def start_release_result_timeout(self):
-        """到达放置位后发送打开命令并等待解除吸附结果。"""
+        """发送打开命令并等待解除吸附结果。"""
         self.cancel_release_result_timeout()
         self.waiting_for_release_result = True
 
@@ -1144,12 +1282,33 @@ class AppleMoveItPlanner(Node):
             self.start_grasp_result_timeout()
             return
 
+        if phase_gate_action == "wait_release_result":
+            self.publish_status(
+                "PLACE_REACHED",
+                (
+                    "place execution completed; "
+                    "apple remains attached"
+                ),
+            )
+            self.start_release_result_timeout()
+            return
+
         if phase_gate_action == "finish_plan_only":
             self.publish_status(
                 "PLAN_ONLY_SUCCEEDED",
                 (
                     "all motion phases planned; "
                     "no motion or suction was executed"
+                ),
+            )
+            return
+
+        if phase_gate_action == "finish_sequence":
+            self.publish_status(
+                "SUCCEEDED",
+                (
+                    "apple placed, suction detached, "
+                    "and robot returned to safe pose"
                 ),
             )
             return
@@ -1182,6 +1341,9 @@ class AppleMoveItPlanner(Node):
                         f"invalid place pose: {error}",
                     )
                     return
+            elif completed_phase == "place":
+                completed_status = "PLACE_PLAN_SUCCEEDED"
+                next_target_pose = self.latest_pregrasp_pose
             else:
                 self.publish_status(
                     "FAILED",
@@ -1211,10 +1373,9 @@ class AppleMoveItPlanner(Node):
             return
 
         self.publish_status(
-            "PLACE_REACHED",
-            "place execution completed; apple remains attached",
+            "FAILED",
+            f"unsupported terminal phase: {completed_phase}",
         )
-        self.start_release_result_timeout()
 
 
 def main(args=None):

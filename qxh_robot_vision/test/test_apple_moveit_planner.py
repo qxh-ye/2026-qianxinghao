@@ -2,12 +2,83 @@ import pytest
 
 from geometry_msgs.msg import PoseStamped
 from qxh_robot_vision.apple_moveit_planner import (
+    create_ground_collision_objects,
     create_fixed_place_pose,
+    create_unripe_apple_collision_object,
     get_grasp_result_action,
     get_next_motion_phase,
     get_phase_gate_action,
     get_release_result_action,
 )
+
+
+def test_ground_collision_objects_cover_floor_around_base():
+    ground_objects = create_ground_collision_objects(
+        "base_link"
+    )
+
+    assert len(ground_objects) == 4
+    assert {
+        collision_object.id
+        for collision_object in ground_objects
+    } == {
+        "simulation_ground_positive_x",
+        "simulation_ground_negative_x",
+        "simulation_ground_positive_y",
+        "simulation_ground_negative_y",
+    }
+
+    for collision_object in ground_objects:
+        assert collision_object.header.frame_id == "base_link"
+        assert collision_object.operation == collision_object.ADD
+        assert len(collision_object.primitives) == 1
+        assert len(collision_object.primitive_poses) == 1
+        assert collision_object.primitives[0].type == (
+            collision_object.primitives[0].BOX
+        )
+        assert collision_object.primitives[0].dimensions[2] == 0.10
+        assert (
+            collision_object.primitive_poses[0].position.z
+            == pytest.approx(-0.05)
+        )
+        assert collision_object.primitive_poses[0].orientation.w == 1.0
+
+
+def test_ground_collision_objects_reject_invalid_frame():
+    with pytest.raises(TypeError):
+        create_ground_collision_objects(None)
+
+    with pytest.raises(ValueError):
+        create_ground_collision_objects("")
+
+
+def test_unripe_apple_collision_includes_gripper_clearance():
+    collision_object = create_unripe_apple_collision_object(
+        "base_link"
+    )
+
+    assert collision_object.header.frame_id == "base_link"
+    assert collision_object.id == "simulation_unripe_apple"
+    assert collision_object.operation == collision_object.ADD
+    assert len(collision_object.primitives) == 1
+    assert len(collision_object.primitive_poses) == 1
+
+    primitive = collision_object.primitives[0]
+    pose = collision_object.primitive_poses[0]
+    assert primitive.type == primitive.SPHERE
+    assert primitive.dimensions[0] == pytest.approx(0.20)
+    assert pose.position.x == pytest.approx(0.70)
+    assert pose.position.y == pytest.approx(0.18)
+    assert pose.position.z == pytest.approx(0.55)
+    assert pose.orientation.w == 1.0
+
+
+def test_unripe_apple_collision_rejects_invalid_frame():
+    with pytest.raises(TypeError):
+        create_unripe_apple_collision_object(None)
+
+    with pytest.raises(ValueError):
+        create_unripe_apple_collision_object("")
 
 
 @pytest.mark.parametrize(
@@ -16,7 +87,8 @@ from qxh_robot_vision.apple_moveit_planner import (
         ("pregrasp", "grasp"),
         ("grasp", "retreat"),
         ("retreat", "place"),
-        ("place", None),
+        ("place", "return"),
+        ("return", None),
     ],
 )
 def test_motion_phase_sequence(
@@ -144,7 +216,7 @@ def test_grasp_result_rejects_non_boolean_value():
 @pytest.mark.parametrize(
     "release_succeeded, expected_action",
     [
-        (True, "succeeded"),
+        (True, "return"),
         (False, "failed"),
     ],
 )
@@ -193,8 +265,10 @@ def test_release_result_rejects_non_boolean_value():
         ("grasp", False, "advance_to_retreat"),
         ("grasp", True, "wait_grasp_result"),
         ("retreat", False, "advance"),
-        ("place", False, "finish_plan_only"),
+        ("place", False, "advance_to_return"),
         ("place", True, "wait_release_result"),
+        ("return", False, "finish_plan_only"),
+        ("return", True, "finish_sequence"),
     ],
 )
 def test_phase_gate_separates_plan_and_execute_modes(

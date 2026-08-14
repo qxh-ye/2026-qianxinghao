@@ -39,6 +39,7 @@
 
     <model name="ground_plane">
       <static>true</static>
+      <pose>0 0 -0.05 0 0 0</pose>
 
       <link name="link">
         <collision name="collision">
@@ -87,13 +88,12 @@
           </inertia>
         </inertial>
 
-        <collision name="collision">
-          <geometry>
-            <sphere>
-              <radius>0.08</radius>
-            </sphere>
-          </geometry>
-        </collision>
+        <!--
+          The suction demo intentionally omits contact collision here.
+          The detachable joint carries the apple after attachment; keeping
+          an overlapping sphere collision would fight that fixed constraint
+          and can drive the wrist joints into their limits.
+        -->
 
         <visual name="visual">
           <geometry>

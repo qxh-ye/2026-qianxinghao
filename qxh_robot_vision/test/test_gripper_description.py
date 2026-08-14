@@ -75,6 +75,81 @@ def test_gripper_controller_matches_description():
     assert gripper_joint in joint_names
 
 
+def test_arm_controller_tracks_wrapped_joint_errors():
+    controller_file = (
+        PACKAGE_ROOT
+        / "config"
+        / "ur5e_gripper_controllers.yaml"
+    )
+    with controller_file.open(encoding="utf-8") as stream:
+        controllers = yaml.safe_load(stream)
+
+    controller_parameters = controllers[
+        "joint_trajectory_controller"
+    ]["ros__parameters"]
+
+    assert controller_parameters["command_interfaces"] == [
+        "velocity"
+    ]
+
+    arm_joints = (
+        "shoulder_pan_joint",
+        "shoulder_lift_joint",
+        "elbow_joint",
+        "wrist_1_joint",
+        "wrist_2_joint",
+        "wrist_3_joint",
+    )
+    for joint_name in arm_joints:
+        assert controller_parameters["constraints"][joint_name] == {
+            "trajectory": -1.0,
+            "goal": 0.1,
+        }
+
+    assert controller_parameters["gains"] == {
+        "shoulder_pan_joint": {
+            "p": 2.0,
+            "i": 0.0,
+            "d": 0.1,
+            "ff_velocity_scale": 1.0,
+            "angle_wraparound": True,
+        },
+        "shoulder_lift_joint": {
+            "p": 2.0,
+            "i": 0.0,
+            "d": 0.1,
+            "ff_velocity_scale": 1.0,
+        },
+        "elbow_joint": {
+            "p": 2.0,
+            "i": 0.0,
+            "d": 0.1,
+            "ff_velocity_scale": 1.0,
+        },
+        "wrist_1_joint": {
+            "p": 2.0,
+            "i": 0.0,
+            "d": 0.1,
+            "ff_velocity_scale": 1.0,
+            "angle_wraparound": True,
+        },
+        "wrist_2_joint": {
+            "p": 2.0,
+            "i": 0.0,
+            "d": 0.1,
+            "ff_velocity_scale": 1.0,
+            "angle_wraparound": True,
+        },
+        "wrist_3_joint": {
+            "p": 2.0,
+            "i": 0.0,
+            "d": 0.1,
+            "ff_velocity_scale": 1.0,
+            "angle_wraparound": True,
+        },
+    }
+
+
 def test_suction_joint_matches_ripe_apple_model():
     robot = generate_robot_description()
     plugin = robot.find(
@@ -115,3 +190,4 @@ def test_suction_joint_matches_ripe_apple_model():
     assert ripe_apple.findtext("static") == "false"
     assert apple_link.findtext("gravity") == "false"
     assert float(apple_link.findtext("./inertial/mass")) > 0.0
+    assert apple_link.find("collision") is None
