@@ -180,8 +180,8 @@
             </box>
           </geometry>
           <material>
-            <ambient>0.85 0.08 0.08 1</ambient>
-            <diffuse>0.85 0.08 0.08 1</diffuse>
+            <ambient>0.80 0.60 0.60 1</ambient>
+            <diffuse>0.80 0.60 0.60 1</diffuse>
           </material>
         </visual>
 
@@ -193,8 +193,8 @@
             </box>
           </geometry>
           <material>
-            <ambient>1 0.55 0.05 1</ambient>
-            <diffuse>1 0.55 0.05 1</diffuse>
+            <ambient>0.90 0.72 0.45 1</ambient>
+            <diffuse>0.90 0.72 0.45 1</diffuse>
           </material>
         </visual>
 
@@ -206,8 +206,8 @@
             </box>
           </geometry>
           <material>
-            <ambient>0.08 0.65 0.12 1</ambient>
-            <diffuse>0.08 0.65 0.12 1</diffuse>
+            <ambient>0.60 0.80 0.60 1</ambient>
+            <diffuse>0.60 0.80 0.60 1</diffuse>
           </material>
         </visual>
       </link>
@@ -215,7 +215,7 @@
 
     <model name="ripe_apple_1">
       <static>false</static>
-      <pose>0.56 -0.30 0.51 0 0 0</pose>
+      <pose>0.56 -0.35 0.47 0 0 0</pose>
 
       <link name="link">
         <!--
@@ -227,12 +227,12 @@
         <inertial>
           <mass>0.15</mass>
           <inertia>
-            <ixx>0.000384</ixx>
+            <ixx>0.00015</ixx>
             <ixy>0</ixy>
             <ixz>0</ixz>
-            <iyy>0.000384</iyy>
+            <iyy>0.00015</iyy>
             <iyz>0</iyz>
-            <izz>0.000384</izz>
+            <izz>0.00015</izz>
           </inertia>
         </inertial>
 
@@ -246,7 +246,7 @@
         <visual name="visual">
           <geometry>
             <sphere>
-              <radius>0.08</radius>
+              <radius>0.05</radius>
             </sphere>
           </geometry>
 
@@ -260,7 +260,7 @@
 
     <model name="ripe_apple_2">
       <static>false</static>
-      <pose>0.72 0.04 0.51 0 0 0</pose>
+      <pose>0.72 0.058 0.47 0 0 0</pose>
 
       <link name="link">
         <gravity>false</gravity>
@@ -268,19 +268,19 @@
         <inertial>
           <mass>0.15</mass>
           <inertia>
-            <ixx>0.000384</ixx>
+            <ixx>0.00015</ixx>
             <ixy>0</ixy>
             <ixz>0</ixz>
-            <iyy>0.000384</iyy>
+            <iyy>0.00015</iyy>
             <iyz>0</iyz>
-            <izz>0.000384</izz>
+            <izz>0.00015</izz>
           </inertia>
         </inertial>
 
         <visual name="visual">
           <geometry>
             <sphere>
-              <radius>0.08</radius>
+              <radius>0.05</radius>
             </sphere>
           </geometry>
 
@@ -294,7 +294,7 @@
 
     <model name="half_ripe_apple_1">
       <static>false</static>
-      <pose>0.56 -0.08 0.51 0 0 0</pose>
+      <pose>0.56 -0.07 0.47 0 0 0</pose>
 
       <link name="link">
         <gravity>false</gravity>
@@ -302,25 +302,45 @@
         <inertial>
           <mass>0.15</mass>
           <inertia>
-            <ixx>0.000384</ixx>
+            <ixx>0.00015</ixx>
             <ixy>0</ixy>
             <ixz>0</ixz>
-            <iyy>0.000384</iyy>
+            <iyy>0.00015</iyy>
             <iyz>0</iyz>
-            <izz>0.000384</izz>
+            <izz>0.00015</izz>
           </inertia>
         </inertial>
 
-        <visual name="visual">
+        <!--
+          The detector classifies maturity from the red pixel ratio inside
+          a red-or-green candidate mask.  A green body plus a camera-facing
+          red disk therefore gives a deterministic mixed-color apple.
+        -->
+        <visual name="green_body">
           <geometry>
             <sphere>
-              <radius>0.08</radius>
+              <radius>0.05</radius>
             </sphere>
           </geometry>
 
           <material>
-            <ambient>1 0.45 0 1</ambient>
-            <diffuse>1 0.45 0 1</diffuse>
+            <ambient>0 1 0 1</ambient>
+            <diffuse>0 1 0 1</diffuse>
+          </material>
+        </visual>
+
+        <visual name="red_patch">
+          <pose>0.052 0 0 0 1.570796 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.03873</radius>
+              <length>0.004</length>
+            </cylinder>
+          </geometry>
+
+          <material>
+            <ambient>1 0 0 1</ambient>
+            <diffuse>1 0 0 1</diffuse>
           </material>
         </visual>
       </link>
@@ -328,7 +348,7 @@
 
     <model name="half_ripe_apple_2">
       <static>false</static>
-      <pose>0.72 0.26 0.51 0 0 0</pose>
+      <pose>0.72 0.292 0.47 0 0 0</pose>
 
       <link name="link">
         <gravity>false</gravity>
@@ -336,25 +356,40 @@
         <inertial>
           <mass>0.15</mass>
           <inertia>
-            <ixx>0.000384</ixx>
+            <ixx>0.00015</ixx>
             <ixy>0</ixy>
             <ixz>0</ixz>
-            <iyy>0.000384</iyy>
+            <iyy>0.00015</iyy>
             <iyz>0</iyz>
-            <izz>0.000384</izz>
+            <izz>0.00015</izz>
           </inertia>
         </inertial>
 
-        <visual name="visual">
+        <visual name="green_body">
           <geometry>
             <sphere>
-              <radius>0.08</radius>
+              <radius>0.05</radius>
             </sphere>
           </geometry>
 
           <material>
-            <ambient>1 0.45 0 1</ambient>
-            <diffuse>1 0.45 0 1</diffuse>
+            <ambient>0 1 0 1</ambient>
+            <diffuse>0 1 0 1</diffuse>
+          </material>
+        </visual>
+
+        <visual name="red_patch">
+          <pose>0.052 0 0 0 1.570796 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.03536</radius>
+              <length>0.004</length>
+            </cylinder>
+          </geometry>
+
+          <material>
+            <ambient>1 0 0 1</ambient>
+            <diffuse>1 0 0 1</diffuse>
           </material>
         </visual>
       </link>
@@ -362,7 +397,7 @@
 
     <model name="unripe_apple_1">
       <static>false</static>
-      <pose>0.56 0.14 0.51 0 0 0</pose>
+      <pose>0.56 0.21 0.47 0 0 0</pose>
 
       <link name="link">
         <gravity>false</gravity>
@@ -370,19 +405,19 @@
         <inertial>
           <mass>0.15</mass>
           <inertia>
-            <ixx>0.000384</ixx>
+            <ixx>0.00015</ixx>
             <ixy>0</ixy>
             <ixz>0</ixz>
-            <iyy>0.000384</iyy>
+            <iyy>0.00015</iyy>
             <iyz>0</iyz>
-            <izz>0.000384</izz>
+            <izz>0.00015</izz>
           </inertia>
         </inertial>
 
         <visual name="visual">
           <geometry>
             <sphere>
-              <radius>0.08</radius>
+              <radius>0.05</radius>
             </sphere>
           </geometry>
 
@@ -396,7 +431,7 @@
 
     <model name="unripe_apple_2">
       <static>false</static>
-      <pose>0.72 -0.18 0.51 0 0 0</pose>
+      <pose>0.72 -0.175 0.47 0 0 0</pose>
 
       <link name="link">
         <gravity>false</gravity>
@@ -404,19 +439,19 @@
         <inertial>
           <mass>0.15</mass>
           <inertia>
-            <ixx>0.000384</ixx>
+            <ixx>0.00015</ixx>
             <ixy>0</ixy>
             <ixz>0</ixz>
-            <iyy>0.000384</iyy>
+            <iyy>0.00015</iyy>
             <iyz>0</iyz>
-            <izz>0.000384</izz>
+            <izz>0.00015</izz>
           </inertia>
         </inertial>
 
         <visual name="visual">
           <geometry>
             <sphere>
-              <radius>0.08</radius>
+              <radius>0.05</radius>
             </sphere>
           </geometry>
 

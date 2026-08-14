@@ -226,6 +226,15 @@ def test_sorting_world_has_two_platforms_and_six_stable_apples():
         "half_ripe_zone",
         "unripe_zone",
     }.issubset(zone_names)
+    assert platform_b.findtext(
+        "./link/visual[@name='ripe_zone']/material/diffuse"
+    ) == "0.80 0.60 0.60 1"
+    assert platform_b.findtext(
+        "./link/visual[@name='half_ripe_zone']/material/diffuse"
+    ) == "0.90 0.72 0.45 1"
+    assert platform_b.findtext(
+        "./link/visual[@name='unripe_zone']/material/diffuse"
+    ) == "0.60 0.80 0.60 1"
 
     apple_names = (
         "ripe_apple_1",
@@ -250,8 +259,8 @@ def test_sorting_world_has_two_platforms_and_six_stable_apples():
         apple_positions.append(pose[:3])
         assert 0.46 <= pose[0] <= 0.90
         assert -0.41 <= pose[1] <= 0.41
-        assert pose[2] - 0.08 >= 0.42
-        assert math.hypot(pose[0] + 0.08, pose[1]) < 0.85
+        assert pose[2] - 0.05 >= 0.42
+        assert math.hypot(pose[0] + 0.05, pose[1]) < 0.85
 
     for index, first_position in enumerate(apple_positions):
         for second_position in apple_positions[index + 1:]:
@@ -259,7 +268,7 @@ def test_sorting_world_has_two_platforms_and_six_stable_apples():
                 first_position,
                 second_position,
             )
-            assert center_distance > 0.16
+            assert center_distance > 0.10
 
 
 def test_sorting_world_uses_vmware_friendly_overview_camera():
@@ -273,3 +282,27 @@ def test_sorting_world_uses_vmware_friendly_overview_camera():
     assert scene_plugin.findtext("camera_pose") == (
         "-1.4 -1.8 1.5 0 0.45 0.75"
     )
+
+
+def test_half_ripe_apples_use_red_ratio_compatible_visuals():
+    world = load_sorting_world()
+    patch_radii = {
+        "half_ripe_apple_1": 0.03873,
+        "half_ripe_apple_2": 0.03536,
+    }
+
+    for apple_name, expected_patch_radius in patch_radii.items():
+        apple = world.find(f"./model[@name='{apple_name}']")
+        green_body = apple.find("./link/visual[@name='green_body']")
+        red_patch = apple.find("./link/visual[@name='red_patch']")
+
+        assert green_body is not None
+        assert red_patch is not None
+        assert green_body.findtext("./material/diffuse") == "0 1 0 1"
+        assert red_patch.findtext("./material/diffuse") == "1 0 0 1"
+        assert float(green_body.findtext("./geometry/sphere/radius")) == 0.05
+        assert float(red_patch.findtext("./geometry/cylinder/radius")) == (
+            expected_patch_radius
+        )
+        assert float(red_patch.findtext("./geometry/cylinder/length")) == 0.004
+        assert red_patch.findtext("pose") == "0.052 0 0 0 1.570796 0"
