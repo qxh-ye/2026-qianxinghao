@@ -1,3 +1,5 @@
+import math
+
 import pytest
 
 from geometry_msgs.msg import PoseStamped
@@ -10,12 +12,36 @@ from qxh_robot_vision.apple_moveit_planner import (
     create_pick_platform_collision_object,
     create_sorting_platform_collision_object,
     create_unripe_apple_collision_object,
+    create_wrist_joint_constraints,
     get_grasp_result_action,
     get_next_motion_phase,
     get_phase_gate_action,
     get_release_result_action,
     parameterize_cartesian_trajectory,
 )
+
+
+def test_wrist_joint_constraints_avoid_multi_turn_ik():
+    constraints = create_wrist_joint_constraints()
+
+    assert [
+        constraint.joint_name
+        for constraint in constraints
+    ] == [
+        "wrist_1_joint",
+        "wrist_2_joint",
+        "wrist_3_joint",
+    ]
+
+    for constraint in constraints:
+        assert constraint.position == 0.0
+        assert constraint.tolerance_above == pytest.approx(
+            math.pi
+        )
+        assert constraint.tolerance_below == pytest.approx(
+            math.pi
+        )
+        assert constraint.weight == 1.0
 
 
 def test_cartesian_approach_request_keeps_fixed_grasp_pose():

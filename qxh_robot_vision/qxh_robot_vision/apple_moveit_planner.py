@@ -7,6 +7,7 @@ from moveit_msgs.action import ExecuteTrajectory, MoveGroup
 from moveit_msgs.msg import (
     CollisionObject,
     Constraints,
+    JointConstraint,
     MoveItErrorCodes,
     OrientationConstraint,
     PositionConstraint,
@@ -187,6 +188,26 @@ def create_unripe_apple_collision_object(frame_id):
     collision_object.operation = CollisionObject.ADD
 
     return collision_object
+
+
+def create_wrist_joint_constraints():
+    """限制腕关节使用半圈内的等价逆解."""
+    constraints = []
+
+    for joint_name in (
+        "wrist_1_joint",
+        "wrist_2_joint",
+        "wrist_3_joint",
+    ):
+        constraint = JointConstraint()
+        constraint.joint_name = joint_name
+        constraint.position = 0.0
+        constraint.tolerance_above = math.pi
+        constraint.tolerance_below = math.pi
+        constraint.weight = 1.0
+        constraints.append(constraint)
+
+    return constraints
 
 
 def get_next_motion_phase(current_phase):
@@ -1013,6 +1034,9 @@ class AppleMoveItPlanner(Node):
         )
         goal_constraints.orientation_constraints.append(
             orientation_constraint
+        )
+        goal_constraints.joint_constraints.extend(
+            create_wrist_joint_constraints()
         )
 
         goal = MoveGroup.Goal()
