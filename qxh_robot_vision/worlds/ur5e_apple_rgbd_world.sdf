@@ -30,6 +30,63 @@
       <grid>true</grid>
     </scene>
 
+    <gui fullscreen="0">
+      <plugin filename="MinimalScene" name="3D View">
+        <ignition-gui>
+          <title>Apple sorting workstation</title>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="string" key="state">docked</property>
+        </ignition-gui>
+        <engine>ogre</engine>
+        <scene>scene</scene>
+        <ambient_light>0.8 0.8 0.8</ambient_light>
+        <background_color>0.7 0.7 0.7</background_color>
+        <camera_pose>-1.4 -1.8 1.5 0 0.45 0.75</camera_pose>
+        <camera_clip>
+          <near>0.05</near>
+          <far>100</far>
+        </camera_clip>
+      </plugin>
+
+      <plugin filename="GzSceneManager" name="Scene Manager">
+        <ignition-gui>
+          <property key="state" type="string">floating</property>
+          <property key="showTitleBar" type="bool">false</property>
+        </ignition-gui>
+      </plugin>
+
+      <plugin filename="InteractiveViewControl" name="View control">
+        <ignition-gui>
+          <property key="state" type="string">floating</property>
+          <property key="showTitleBar" type="bool">false</property>
+        </ignition-gui>
+      </plugin>
+
+      <plugin filename="CameraTracking" name="Camera Tracking">
+        <ignition-gui>
+          <property key="state" type="string">floating</property>
+          <property key="showTitleBar" type="bool">false</property>
+        </ignition-gui>
+      </plugin>
+
+      <plugin filename="WorldControl" name="World control">
+        <ignition-gui>
+          <title>World control</title>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">72</property>
+          <property type="double" key="width">121</property>
+          <property type="string" key="state">floating</property>
+          <anchors target="3D View">
+            <line own="left" target="left"/>
+            <line own="bottom" target="bottom"/>
+          </anchors>
+        </ignition-gui>
+        <play_pause>true</play_pause>
+        <step>true</step>
+      </plugin>
+    </gui>
+
     <light type="directional" name="sun">
       <pose>0 0 10 0 0 0</pose>
       <diffuse>0.8 0.8 0.8 1</diffuse>
@@ -65,9 +122,100 @@
       </link>
     </model>
 
+    <!-- Platform A: compact pick area in front of the UR5e base. -->
+    <model name="platform_a_pick_area">
+      <static>true</static>
+      <pose>0.68 0 0.36 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.44 0.82 0.12</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.44 0.82 0.12</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.12 0.30 0.55 1</ambient>
+            <diffuse>0.12 0.30 0.55 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Platform B: sorting area covering the current fixed place poses. -->
+    <model name="platform_b_sorting_area">
+      <static>true</static>
+      <pose>0.32 0.30 0.36 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.30 0.70 0.12</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="base_visual">
+          <geometry>
+            <box>
+              <size>0.30 0.70 0.12</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.25 0.25 0.28 1</ambient>
+            <diffuse>0.25 0.25 0.28 1</diffuse>
+          </material>
+        </visual>
+
+        <visual name="ripe_zone">
+          <pose>0.10 0 0.066 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.075 0.62 0.012</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.85 0.08 0.08 1</ambient>
+            <diffuse>0.85 0.08 0.08 1</diffuse>
+          </material>
+        </visual>
+
+        <visual name="half_ripe_zone">
+          <pose>0 0 0.066 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.075 0.62 0.012</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>1 0.55 0.05 1</ambient>
+            <diffuse>1 0.55 0.05 1</diffuse>
+          </material>
+        </visual>
+
+        <visual name="unripe_zone">
+          <pose>-0.10 0 0.066 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.075 0.62 0.012</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.08 0.65 0.12 1</ambient>
+            <diffuse>0.08 0.65 0.12 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
     <model name="ripe_apple_1">
       <static>false</static>
-      <pose>0.70 -0.18 0.55 0 0 0</pose>
+      <pose>0.56 -0.30 0.51 0 0 0</pose>
 
       <link name="link">
         <!--
@@ -112,7 +260,7 @@
 
     <model name="ripe_apple_2">
       <static>false</static>
-      <pose>0.72 0.0 0.70 0 0 0</pose>
+      <pose>0.72 0.04 0.51 0 0 0</pose>
 
       <link name="link">
         <gravity>false</gravity>
@@ -144,18 +292,92 @@
       </link>
     </model>
 
-    <model name="unripe_apple">
-      <static>true</static>
-      <pose>0.70 0.18 0.55 0 0 0</pose>
+    <model name="half_ripe_apple_1">
+      <static>false</static>
+      <pose>0.56 -0.08 0.51 0 0 0</pose>
 
       <link name="link">
-        <collision name="collision">
+        <gravity>false</gravity>
+
+        <inertial>
+          <mass>0.15</mass>
+          <inertia>
+            <ixx>0.000384</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.000384</iyy>
+            <iyz>0</iyz>
+            <izz>0.000384</izz>
+          </inertia>
+        </inertial>
+
+        <visual name="visual">
           <geometry>
             <sphere>
               <radius>0.08</radius>
             </sphere>
           </geometry>
-        </collision>
+
+          <material>
+            <ambient>1 0.45 0 1</ambient>
+            <diffuse>1 0.45 0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="half_ripe_apple_2">
+      <static>false</static>
+      <pose>0.72 0.26 0.51 0 0 0</pose>
+
+      <link name="link">
+        <gravity>false</gravity>
+
+        <inertial>
+          <mass>0.15</mass>
+          <inertia>
+            <ixx>0.000384</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.000384</iyy>
+            <iyz>0</iyz>
+            <izz>0.000384</izz>
+          </inertia>
+        </inertial>
+
+        <visual name="visual">
+          <geometry>
+            <sphere>
+              <radius>0.08</radius>
+            </sphere>
+          </geometry>
+
+          <material>
+            <ambient>1 0.45 0 1</ambient>
+            <diffuse>1 0.45 0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="unripe_apple_1">
+      <static>false</static>
+      <pose>0.56 0.14 0.51 0 0 0</pose>
+
+      <link name="link">
+        <gravity>false</gravity>
+
+        <inertial>
+          <mass>0.15</mass>
+          <inertia>
+            <ixx>0.000384</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.000384</iyy>
+            <iyz>0</iyz>
+            <izz>0.000384</izz>
+          </inertia>
+        </inertial>
 
         <visual name="visual">
           <geometry>
@@ -171,6 +393,41 @@
         </visual>
       </link>
     </model>
+
+    <model name="unripe_apple_2">
+      <static>false</static>
+      <pose>0.72 -0.18 0.51 0 0 0</pose>
+
+      <link name="link">
+        <gravity>false</gravity>
+
+        <inertial>
+          <mass>0.15</mass>
+          <inertia>
+            <ixx>0.000384</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.000384</iyy>
+            <iyz>0</iyz>
+            <izz>0.000384</izz>
+          </inertia>
+        </inertial>
+
+        <visual name="visual">
+          <geometry>
+            <sphere>
+              <radius>0.08</radius>
+            </sphere>
+          </geometry>
+
+          <material>
+            <ambient>0 1 0 1</ambient>
+            <diffuse>0 1 0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
     <model name="rgbd_camera">
       <static>true</static>
       <pose>1.50 0 0.55 0 0 3.14159</pose>

@@ -1,4 +1,5 @@
 from pathlib import Path
+import math
 import subprocess
 import xml.etree.ElementTree as ElementTree
 
@@ -6,6 +7,15 @@ import yaml
 
 
 PACKAGE_ROOT = Path(__file__).parents[1]
+
+
+def load_sorting_world():
+    world_file = (
+        PACKAGE_ROOT
+        / "worlds"
+        / "ur5e_apple_rgbd_world.sdf"
+    )
+    return ElementTree.parse(world_file).getroot().find("world")
 
 
 def generate_robot_description():
@@ -157,12 +167,7 @@ def test_suction_joints_match_ripe_apple_models():
         "[@name='ignition::gazebo::systems::DetachableJoint']"
     )
 
-    world_file = (
-        PACKAGE_ROOT
-        / "worlds"
-        / "ur5e_apple_rgbd_world.sdf"
-    )
-    world = ElementTree.parse(world_file).getroot().find("world")
+    world = load_sorting_world()
 
     assert len(plugins) == 2
 
@@ -195,3 +200,76 @@ def test_suction_joints_match_ripe_apple_models():
         assert apple_link.findtext("gravity") == "false"
         assert float(apple_link.findtext("./inertial/mass")) > 0.0
         assert apple_link.find("collision") is None
+
+
+def test_sorting_world_has_two_platforms_and_six_stable_apples():
+    world = load_sorting_world()
+
+    platform_a = world.find(
+        "./model[@name='platform_a_pick_area']"
+    )
+    platform_b = world.find(
+        "./model[@name='platform_b_sorting_area']"
+    )
+
+    assert platform_a is not None
+    assert platform_b is not None
+    assert platform_a.findtext("static") == "true"
+    assert platform_b.findtext("static") == "true"
+
+    zone_names = {
+        visual.attrib["name"]
+        for visual in platform_b.findall("./link/visual")
+    }
+    assert {
+        "ripe_zone",
+        "half_ripe_zone",
+        "unripe_zone",
+    }.issubset(zone_names)
+
+    apple_names = (
+        "ripe_apple_1",
+        "ripe_apple_2",
+        "half_ripe_apple_1",
+        "half_ripe_apple_2",
+        "unripe_apple_1",
+        "unripe_apple_2",
+    )
+    apple_positions = []
+
+    for apple_name in apple_names:
+        apple = world.find(f"./model[@name='{apple_name}']")
+        assert apple is not None
+        assert apple.findtext("static") == "false"
+
+        apple_link = apple.find("./link[@name='link']")
+        assert apple_link.findtext("gravity") == "false"
+        assert apple_link.find("collision") is None
+
+        pose = tuple(float(value) for value in apple.findtext("pose").split())
+        apple_positions.append(pose[:3])
+        assert 0.46 <= pose[0] <= 0.90
+        assert -0.41 <= pose[1] <= 0.41
+        assert pose[2] - 0.08 >= 0.42
+        assert math.hypot(pose[0] + 0.08, pose[1]) < 0.85
+
+    for index, first_position in enumerate(apple_positions):
+        for second_position in apple_positions[index + 1:]:
+            center_distance = math.dist(
+                first_position,
+                second_position,
+            )
+            assert center_distance > 0.16
+
+
+def test_sorting_world_uses_vmware_friendly_overview_camera():
+    world = load_sorting_world()
+    scene_plugin = world.find(
+        "./gui/plugin[@filename='MinimalScene']"
+    )
+
+    assert scene_plugin is not None
+    assert scene_plugin.findtext("engine") == "ogre"
+    assert scene_plugin.findtext("camera_pose") == (
+        "-1.4 -1.8 1.5 0 0.45 0.75"
+    )
