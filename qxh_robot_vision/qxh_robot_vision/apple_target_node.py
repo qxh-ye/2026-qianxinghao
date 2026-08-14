@@ -14,6 +14,8 @@ from rclpy.qos import (
 )
 from std_msgs.msg import Int32, String
 
+from qxh_robot_vision.harvest_report import export_harvest_results
+
 
 @dataclass
 class AppleCandidate:
@@ -309,6 +311,11 @@ class AppleTargetNode(Node):
             0.10,
         )
 
+        self.declare_parameter(
+            "harvest_report_output_dir",
+            "~/.ros/qxh_robot_vision",
+        )
+
         self.approach_distance_m = float(
             self.get_parameter(
                 "approach_distance_m"
@@ -348,6 +355,11 @@ class AppleTargetNode(Node):
                 "candidate_match_distance_m"
             ).value
         )
+        self.harvest_report_output_dir = str(
+            self.get_parameter(
+                "harvest_report_output_dir"
+            ).value
+        ).strip()
 
         if (
             not math.isfinite(self.candidate_collection_sec)
@@ -363,6 +375,11 @@ class AppleTargetNode(Node):
         ):
             raise ValueError(
                 "candidate_match_distance_m 必须是大于0的有限值"
+            )
+
+        if not self.harvest_report_output_dir:
+            raise ValueError(
+                "harvest_report_output_dir 不能为空"
             )
 
         self.pregrasp_publisher = self.create_publisher(
@@ -436,7 +453,9 @@ class AppleTargetNode(Node):
             "candidate_collection_sec="
             f"{self.candidate_collection_sec:.1f}, "
             "candidate_match_distance_m="
-            f"{self.candidate_match_distance_m:.3f}"
+            f"{self.candidate_match_distance_m:.3f}, "
+            "harvest_report_output_dir="
+            f"{self.harvest_report_output_dir}"
         )
 
     def ripe_point_callback(self, message):
@@ -653,6 +672,40 @@ class AppleTargetNode(Node):
         )
         self.candidate_status_publisher.publish(status_message)
         self.get_logger().info(status_message.data)
+
+        ordered_records = [
+            self.harvest_records[apple_id]
+            for apple_id in sorted(self.harvest_records)
+        ]
+        try:
+            json_path, csv_path, summary = (
+                export_harvest_results(
+                    ordered_records,
+                    self.harvest_report_output_dir,
+                )
+            )
+        except (OSError, TypeError, ValueError) as error:
+            self.get_logger().error(
+                f"Failed to export harvest report: {error}"
+            )
+        else:
+            self.get_logger().info(
+                "Harvest summary: "
+                f"total={summary['total_apples']}, "
+                f"ripe={summary['ripe_apples']}, "
+                f"attempted={summary['attempted']}, "
+                f"succeeded={summary['succeeded']}, "
+                f"failed={summary['failed']}, "
+                "success_rate="
+                f"{summary['success_rate_percent']:.1f}%, "
+                "average_duration="
+                f"{summary['average_duration_sec']:.2f}s"
+            )
+            self.get_logger().info(
+                "Harvest reports written: "
+                f"json={json_path}, csv={csv_path}"
+            )
+
         self.all_processed_reported = True
 
 
