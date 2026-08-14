@@ -133,6 +133,58 @@ def test_fixed_place_pose_uses_configured_position_and_reference():
     )
 
 
+def test_fixed_place_pose_offsets_second_apple_along_y_axis():
+    reference_pose = PoseStamped()
+    reference_pose.header.frame_id = "base_link"
+    reference_pose.pose.orientation.w = 1.0
+
+    place_pose = create_fixed_place_pose(
+        reference_pose=reference_pose,
+        place_x_m=0.45,
+        place_y_m=0.35,
+        place_z_m=0.55,
+        apple_id=2,
+        place_spacing_y_m=0.20,
+    )
+
+    assert place_pose.pose.position.x == pytest.approx(0.45)
+    assert place_pose.pose.position.y == pytest.approx(0.15)
+    assert place_pose.pose.position.z == pytest.approx(0.55)
+
+
+@pytest.mark.parametrize("invalid_apple_id", [0, -1])
+def test_fixed_place_pose_rejects_invalid_apple_id(
+        invalid_apple_id,
+):
+    reference_pose = PoseStamped()
+    reference_pose.header.frame_id = "base_link"
+
+    with pytest.raises(ValueError):
+        create_fixed_place_pose(
+            reference_pose=reference_pose,
+            place_x_m=0.45,
+            place_y_m=0.35,
+            place_z_m=0.55,
+            apple_id=invalid_apple_id,
+            place_spacing_y_m=0.20,
+        )
+
+
+def test_fixed_place_pose_rejects_negative_spacing():
+    reference_pose = PoseStamped()
+    reference_pose.header.frame_id = "base_link"
+
+    with pytest.raises(ValueError):
+        create_fixed_place_pose(
+            reference_pose=reference_pose,
+            place_x_m=0.45,
+            place_y_m=0.35,
+            place_z_m=0.55,
+            apple_id=2,
+            place_spacing_y_m=-0.20,
+        )
+
+
 @pytest.mark.parametrize(
     "invalid_coordinate",
     [

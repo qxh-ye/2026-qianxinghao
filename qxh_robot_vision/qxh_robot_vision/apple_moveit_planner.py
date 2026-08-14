@@ -16,7 +16,7 @@ from rclpy.qos import (
     QoSProfile,
     ReliabilityPolicy,
 )
-from std_msgs.msg import Bool, Empty, String
+from std_msgs.msg import Bool, Empty, Int32, String
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from shape_msgs.msg import SolidPrimitive
@@ -154,8 +154,10 @@ def create_fixed_place_pose(
         place_x_m,
         place_y_m,
         place_z_m,
+        apple_id=1,
+        place_spacing_y_m=0.0,
 ):
-    """使用参考姿态和固定基座坐标生成放置目标位姿."""
+    """按苹果编号生成互不重叠的固定放置目标位姿."""
     if not isinstance(reference_pose, PoseStamped):
         raise TypeError(
             "reference_pose 必须是 PoseStamped"
@@ -166,9 +168,33 @@ def create_fixed_place_pose(
             "reference_pose.header.frame_id 不能为空"
         )
 
+    if isinstance(apple_id, bool) or not isinstance(apple_id, int):
+        raise TypeError(
+            "apple_id 必须是 int"
+        )
+
+    if apple_id < 1:
+        raise ValueError(
+            "apple_id 必须大于等于 1"
+        )
+
+    place_spacing_y_m = float(place_spacing_y_m)
+    if (
+        not math.isfinite(place_spacing_y_m)
+        or place_spacing_y_m < 0.0
+    ):
+        raise ValueError(
+            "place_spacing_y_m 必须是大于等于 0 的有限数值"
+        )
+
+    indexed_place_y_m = (
+        float(place_y_m)
+        - (apple_id - 1) * place_spacing_y_m
+    )
+
     place_coordinates = (
         float(place_x_m),
-        float(place_y_m),
+        indexed_place_y_m,
         float(place_z_m),
     )
 
@@ -343,6 +369,10 @@ class AppleMoveItPlanner(Node):
             "place_z_m",
             0.55,
         )
+        self.declare_parameter(
+            "place_spacing_y_m",
+            0.20,
+        )
 
         self.planning_group = str(
             self.get_parameter(
@@ -429,6 +459,11 @@ class AppleMoveItPlanner(Node):
                 "place_z_m"
             ).value
         )
+        self.place_spacing_y_m = float(
+            self.get_parameter(
+                "place_spacing_y_m"
+            ).value
+        )
 
         if self.max_retries < 0:
             raise ValueError(
@@ -471,10 +506,16 @@ class AppleMoveItPlanner(Node):
                 self.place_x_m,
                 self.place_y_m,
                 self.place_z_m,
+                self.place_spacing_y_m,
             )
         ):
             raise ValueError(
                 "固定放置坐标必须是有限数值"
+            )
+
+        if self.place_spacing_y_m < 0.0:
+            raise ValueError(
+                "place_spacing_y_m 不能小于 0"
             )
         status_qos = QoSProfile(
             depth=1,
@@ -539,6 +580,14 @@ class AppleMoveItPlanner(Node):
                 10,
             )
         )
+        self.current_apple_id_subscription = (
+            self.create_subscription(
+                Int32,
+                "/apple_picker/current_apple_id",
+                self.current_apple_id_callback,
+                status_qos,
+            )
+        )
 
         self.goal_sent = False
         self.server_warning_logged = False
@@ -553,6 +602,8 @@ class AppleMoveItPlanner(Node):
         self.grasp_result_timeout_timer = None
         self.waiting_for_release_result = False
         self.release_result_timeout_timer = None
+        self.current_apple_id = 1
+        self.active_apple_id = 1
 
         self.get_logger().info(
             "Apple MoveIt planner started. "
@@ -569,7 +620,9 @@ class AppleMoveItPlanner(Node):
             "place_position=("
             f"{self.place_x_m:.3f}, "
             f"{self.place_y_m:.3f}, "
-            f"{self.place_z_m:.3f})"
+            f"{self.place_z_m:.3f}), "
+            "place_spacing_y_m="
+            f"{self.place_spacing_y_m:.3f}"
         )
         self.publish_status(
             "WAITING_TARGET"
@@ -803,6 +856,17 @@ class AppleMoveItPlanner(Node):
         self.latest_pregrasp_pose = message
         self.try_start_sequence()
 
+    def current_apple_id_callback(self, message):
+        """缓存目标节点为下一轮选中的苹果编号。"""
+        apple_id = int(message.data)
+        if apple_id < 1:
+            self.get_logger().warning(
+                f"Ignoring invalid apple_id={apple_id}"
+            )
+            return
+
+        self.current_apple_id = apple_id
+
     def grasp_pose_callback(self, message):
         """缓存本轮抓取位姿，并尝试启动两阶段运动。"""
         if self.goal_sent:
@@ -1011,6 +1075,7 @@ class AppleMoveItPlanner(Node):
 
         self.server_warning_logged = False
         self.current_phase = "pregrasp"
+        self.active_apple_id = self.current_apple_id
         self.latest_target_pose = self.latest_pregrasp_pose
         self.retry_count = 0
         self.goal_sent = True
@@ -1358,6 +1423,10 @@ class AppleMoveItPlanner(Node):
                         place_x_m=self.place_x_m,
                         place_y_m=self.place_y_m,
                         place_z_m=self.place_z_m,
+                        apple_id=self.active_apple_id,
+                        place_spacing_y_m=(
+                            self.place_spacing_y_m
+                        ),
                     )
                 except (TypeError, ValueError) as error:
                     self.get_logger().error(
