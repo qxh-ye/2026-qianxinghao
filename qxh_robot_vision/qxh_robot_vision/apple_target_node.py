@@ -180,6 +180,7 @@ def create_offset_pose(
         apple_point,
         offset_distance_m,
         distance_name,
+        height_offset_m=0.0,
 ):
     """根据苹果基座坐标和偏移距离生成末端目标位姿。"""
     if not isinstance(apple_point, PointStamped):
@@ -209,6 +210,15 @@ def create_offset_pose(
     if offset_distance_m <= 0.0:
         raise ValueError(
             f"{distance_name} 必须大于0"
+        )
+
+    height_offset_m = float(height_offset_m)
+    if (
+        not math.isfinite(height_offset_m)
+        or height_offset_m < 0.0
+    ):
+        raise ValueError(
+            "末端高度偏移必须是大于等于0的有限值"
         )
 
     point_x = float(apple_point.point.x)
@@ -241,7 +251,7 @@ def create_offset_pose(
         point_x - offset_distance_m
     )
     target_pose.pose.position.y = point_y
-    target_pose.pose.position.z = point_z
+    target_pose.pose.position.z = point_z + height_offset_m
 
     target_pose.pose.orientation.x = 0.0
     target_pose.pose.orientation.y = 0.0
@@ -254,24 +264,28 @@ def create_offset_pose(
 def create_pregrasp_pose(
         apple_point,
         approach_distance_m,
+        height_offset_m=0.0,
 ):
     """根据苹果基座坐标生成预抓取位姿。"""
     return create_offset_pose(
         apple_point=apple_point,
         offset_distance_m=approach_distance_m,
         distance_name="预抓取距离",
+        height_offset_m=height_offset_m,
     )
 
 
 def create_grasp_pose(
         apple_point,
         grasp_offset_m,
+        height_offset_m=0.0,
 ):
     """根据苹果基座坐标生成抓取位姿。"""
     return create_offset_pose(
         apple_point=apple_point,
         offset_distance_m=grasp_offset_m,
         distance_name="抓取偏移距离",
+        height_offset_m=height_offset_m,
     )
 
 
@@ -289,6 +303,11 @@ class AppleTargetNode(Node):
         self.declare_parameter(
             "grasp_offset_m",
             0.10,
+        )
+
+        self.declare_parameter(
+            "tool_height_offset_m",
+            0.06,
         )
 
         self.declare_parameter(
@@ -327,6 +346,21 @@ class AppleTargetNode(Node):
                 "grasp_offset_m"
             ).value
         )
+
+        self.tool_height_offset_m = float(
+            self.get_parameter(
+                "tool_height_offset_m"
+            ).value
+        )
+
+        if (
+            not math.isfinite(self.tool_height_offset_m)
+            or self.tool_height_offset_m < 0.0
+        ):
+            raise ValueError(
+                "tool_height_offset_m "
+                "必须是大于等于0的有限值"
+            )
 
         if self.grasp_offset_m >= self.approach_distance_m:
             raise ValueError(
@@ -448,6 +482,8 @@ class AppleTargetNode(Node):
             f"approach_distance_m="
             f"{self.approach_distance_m:.3f}, "
             f"grasp_offset_m={self.grasp_offset_m:.3f}, "
+            "tool_height_offset_m="
+            f"{self.tool_height_offset_m:.3f}, "
             f"expected_frame={self.expected_frame}, "
             f"publish_once={self.publish_once}, "
             "candidate_collection_sec="
@@ -567,10 +603,16 @@ class AppleTargetNode(Node):
                 approach_distance_m=(
                     self.approach_distance_m
                 ),
+                height_offset_m=(
+                    self.tool_height_offset_m
+                ),
             )
             grasp_pose = create_grasp_pose(
                 apple_point=message,
                 grasp_offset_m=self.grasp_offset_m,
+                height_offset_m=(
+                    self.tool_height_offset_m
+                ),
             )
         except (TypeError, ValueError) as error:
             self.get_logger().warning(

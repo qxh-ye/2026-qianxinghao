@@ -3,14 +3,16 @@ import math
 import rclpy
 
 from geometry_msgs.msg import Pose, PoseStamped
-from moveit_msgs.action import MoveGroup
+from moveit_msgs.action import ExecuteTrajectory, MoveGroup
 from moveit_msgs.msg import (
     CollisionObject,
     Constraints,
     MoveItErrorCodes,
     OrientationConstraint,
     PositionConstraint,
+    RobotTrajectory,
 )
+from moveit_msgs.srv import GetCartesianPath
 from rclpy.qos import (
     DurabilityPolicy,
     QoSProfile,
@@ -101,6 +103,62 @@ def create_ground_collision_objects(frame_id):
         collision_objects.append(collision_object)
 
     return collision_objects
+
+
+def create_pick_platform_collision_object(frame_id):
+    """创建与双平台场景中平台A一致的MoveIt碰撞体。"""
+    if not isinstance(frame_id, str):
+        raise TypeError("frame_id 必须是 str")
+
+    if not frame_id:
+        raise ValueError("frame_id 不能为空")
+
+    platform_box = SolidPrimitive()
+    platform_box.type = SolidPrimitive.BOX
+    platform_box.dimensions = [0.44, 0.82, 0.12]
+
+    platform_pose = Pose()
+    platform_pose.position.x = 0.68
+    platform_pose.position.y = 0.0
+    platform_pose.position.z = 0.36
+    platform_pose.orientation.w = 1.0
+
+    collision_object = CollisionObject()
+    collision_object.header.frame_id = frame_id
+    collision_object.id = "platform_a_pick_area"
+    collision_object.primitives.append(platform_box)
+    collision_object.primitive_poses.append(platform_pose)
+    collision_object.operation = CollisionObject.ADD
+
+    return collision_object
+
+
+def create_sorting_platform_collision_object(frame_id):
+    """创建与双平台场景中平台B一致的MoveIt碰撞体。"""
+    if not isinstance(frame_id, str):
+        raise TypeError("frame_id 必须是 str")
+
+    if not frame_id:
+        raise ValueError("frame_id 不能为空")
+
+    platform_box = SolidPrimitive()
+    platform_box.type = SolidPrimitive.BOX
+    platform_box.dimensions = [0.30, 0.70, 0.12]
+
+    platform_pose = Pose()
+    platform_pose.position.x = 0.32
+    platform_pose.position.y = 0.30
+    platform_pose.position.z = 0.36
+    platform_pose.orientation.w = 1.0
+
+    collision_object = CollisionObject()
+    collision_object.header.frame_id = frame_id
+    collision_object.id = "platform_b_sorting_area"
+    collision_object.primitives.append(platform_box)
+    collision_object.primitive_poses.append(platform_pose)
+    collision_object.operation = CollisionObject.ADD
+
+    return collision_object
 
 
 def create_unripe_apple_collision_object(frame_id):
@@ -295,6 +353,95 @@ def get_phase_gate_action(
     return "advance"
 
 
+def create_cartesian_approach_request(
+        target_pose,
+        planning_group,
+        end_effector_link,
+        max_step_m,
+):
+    """创建从当前状态直线靠近抓取位姿的笛卡尔路径请求。"""
+    if not isinstance(target_pose, PoseStamped):
+        raise TypeError("target_pose 必须是 PoseStamped")
+
+    if not target_pose.header.frame_id:
+        raise ValueError("target_pose.header.frame_id 不能为空")
+
+    if not isinstance(planning_group, str) or not planning_group:
+        raise ValueError("planning_group 必须是非空字符串")
+
+    if (
+        not isinstance(end_effector_link, str)
+        or not end_effector_link
+    ):
+        raise ValueError("end_effector_link 必须是非空字符串")
+
+    max_step_m = float(max_step_m)
+    if not math.isfinite(max_step_m) or max_step_m <= 0.0:
+        raise ValueError("max_step_m 必须是大于 0 的有限数值")
+
+    quaternion = target_pose.pose.orientation
+    quaternion_norm = math.sqrt(
+        quaternion.x ** 2
+        + quaternion.y ** 2
+        + quaternion.z ** 2
+        + quaternion.w ** 2
+    )
+    if (
+        not math.isfinite(quaternion_norm)
+        or abs(quaternion_norm - 1.0) > 0.01
+    ):
+        raise ValueError("目标姿态四元数必须是单位四元数")
+
+    request = GetCartesianPath.Request()
+    request.header.frame_id = target_pose.header.frame_id
+    request.start_state.is_diff = True
+    request.group_name = planning_group
+    request.link_name = end_effector_link
+    request.waypoints.append(target_pose.pose)
+    request.max_step = max_step_m
+    request.jump_threshold = 0.0
+    request.prismatic_jump_threshold = 0.0
+    request.revolute_jump_threshold = 0.0
+    request.avoid_collisions = True
+
+    return request
+
+
+def parameterize_cartesian_trajectory(
+        trajectory,
+        duration_sec,
+):
+    """为笛卡尔路径点分配单调递增的执行时间。"""
+    if not isinstance(trajectory, RobotTrajectory):
+        raise TypeError("trajectory 必须是 RobotTrajectory")
+
+    duration_sec = float(duration_sec)
+    if not math.isfinite(duration_sec) or duration_sec <= 0.0:
+        raise ValueError("duration_sec 必须是大于 0 的有限数值")
+
+    points = trajectory.joint_trajectory.points
+    if not points:
+        raise ValueError("笛卡尔轨迹不能为空")
+
+    point_count = len(points)
+    for point_index, point in enumerate(points, start=1):
+        point_time_sec = duration_sec * point_index / point_count
+        whole_seconds = int(point_time_sec)
+        nanoseconds = int(round(
+            (point_time_sec - whole_seconds)
+            * 1_000_000_000
+        ))
+
+        if nanoseconds == 1_000_000_000:
+            whole_seconds += 1
+            nanoseconds = 0
+
+        point.time_from_start.sec = whole_seconds
+        point.time_from_start.nanosec = nanoseconds
+
+    return trajectory
+
+
 class AppleMoveItPlanner(Node):
     """请求 MoveIt 完成抓取、放置和返回运动。"""
 
@@ -372,6 +519,18 @@ class AppleMoveItPlanner(Node):
         self.declare_parameter(
             "place_spacing_y_m",
             0.20,
+        )
+        self.declare_parameter(
+            "cartesian_approach_step_m",
+            0.01,
+        )
+        self.declare_parameter(
+            "cartesian_min_fraction",
+            0.99,
+        )
+        self.declare_parameter(
+            "cartesian_approach_duration_sec",
+            6.0,
         )
 
         self.planning_group = str(
@@ -464,6 +623,21 @@ class AppleMoveItPlanner(Node):
                 "place_spacing_y_m"
             ).value
         )
+        self.cartesian_approach_step_m = float(
+            self.get_parameter(
+                "cartesian_approach_step_m"
+            ).value
+        )
+        self.cartesian_min_fraction = float(
+            self.get_parameter(
+                "cartesian_min_fraction"
+            ).value
+        )
+        self.cartesian_approach_duration_sec = float(
+            self.get_parameter(
+                "cartesian_approach_duration_sec"
+            ).value
+        )
 
         if self.max_retries < 0:
             raise ValueError(
@@ -517,6 +691,34 @@ class AppleMoveItPlanner(Node):
             raise ValueError(
                 "place_spacing_y_m 不能小于 0"
             )
+
+        if (
+            not math.isfinite(self.cartesian_approach_step_m)
+            or self.cartesian_approach_step_m <= 0.0
+        ):
+            raise ValueError(
+                "cartesian_approach_step_m "
+                "必须是大于 0 的有限数值"
+            )
+
+        if (
+            not math.isfinite(self.cartesian_min_fraction)
+            or not 0.0 < self.cartesian_min_fraction <= 1.0
+        ):
+            raise ValueError(
+                "cartesian_min_fraction 必须在 (0, 1] 范围内"
+            )
+
+        if (
+            not math.isfinite(
+                self.cartesian_approach_duration_sec
+            )
+            or self.cartesian_approach_duration_sec <= 0.0
+        ):
+            raise ValueError(
+                "cartesian_approach_duration_sec "
+                "必须是大于 0 的有限数值"
+            )
         status_qos = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
@@ -546,6 +748,15 @@ class AppleMoveItPlanner(Node):
             self,
             MoveGroup,
             "/move_action",
+        )
+        self.cartesian_path_client = self.create_client(
+            GetCartesianPath,
+            "/compute_cartesian_path",
+        )
+        self.execute_trajectory_client = ActionClient(
+            self,
+            ExecuteTrajectory,
+            "/execute_trajectory",
         )
 
         self.pregrasp_subscription = (
@@ -622,7 +833,13 @@ class AppleMoveItPlanner(Node):
             f"{self.place_y_m:.3f}, "
             f"{self.place_z_m:.3f}), "
             "place_spacing_y_m="
-            f"{self.place_spacing_y_m:.3f}"
+            f"{self.place_spacing_y_m:.3f}, "
+            "cartesian_approach_step_m="
+            f"{self.cartesian_approach_step_m:.3f}, "
+            "cartesian_min_fraction="
+            f"{self.cartesian_min_fraction:.2f}, "
+            "cartesian_approach_duration_sec="
+            f"{self.cartesian_approach_duration_sec:.1f}"
         )
         self.publish_status(
             "WAITING_TARGET"
@@ -841,6 +1058,16 @@ class AppleMoveItPlanner(Node):
             )
         )
         planning_world.collision_objects.append(
+            create_pick_platform_collision_object(
+                self.expected_frame
+            )
+        )
+        planning_world.collision_objects.append(
+            create_sorting_platform_collision_object(
+                self.expected_frame
+            )
+        )
+        planning_world.collision_objects.append(
             create_unripe_apple_collision_object(
                 self.expected_frame
             )
@@ -909,9 +1136,7 @@ class AppleMoveItPlanner(Node):
         )
         self.retry_count = 0
 
-        self.send_moveit_request(
-            self.latest_target_pose
-        )
+        self.send_current_phase_request()
 
     def start_grasp_result_timeout(self):
         """进入抓取结果等待状态并启动超时定时器。"""
@@ -1158,6 +1383,254 @@ class AppleMoveItPlanner(Node):
             self.goal_response_callback
         )
 
+    def send_current_phase_request(self):
+        """按当前阶段选择全局规划或短距离笛卡尔靠近。"""
+        if (
+            self.execute_plan
+            and self.current_phase == "grasp"
+        ):
+            self.send_cartesian_grasp_request(
+                self.latest_target_pose
+            )
+            return
+
+        self.send_moveit_request(
+            self.latest_target_pose
+        )
+
+    def send_cartesian_grasp_request(self, target_pose):
+        """请求从预抓取位姿直线移动到抓取位姿。"""
+        if not self.cartesian_path_client.service_is_ready():
+            self.get_logger().error(
+                "MoveIt /compute_cartesian_path service "
+                "is unavailable"
+            )
+            self.schedule_retry(
+                "Cartesian path service is unavailable"
+            )
+            return
+
+        try:
+            request = create_cartesian_approach_request(
+                target_pose=target_pose,
+                planning_group=self.planning_group,
+                end_effector_link=self.end_effector_link,
+                max_step_m=self.cartesian_approach_step_m,
+            )
+        except (TypeError, ValueError) as error:
+            self.get_logger().error(
+                f"Invalid Cartesian grasp pose: {error}"
+            )
+            self.publish_status(
+                "FAILED",
+                f"invalid Cartesian grasp pose: {error}",
+            )
+            self.reset_sequence_state()
+            return
+
+        attempt_number = self.retry_count + 1
+        total_attempts = self.max_retries + 1
+        self.publish_status(
+            "PLANNING",
+            (
+                "phase=grasp_cartesian, "
+                f"attempt {attempt_number}/{total_attempts}"
+            ),
+        )
+        self.get_logger().info(
+            "Requesting Cartesian grasp approach: "
+            f"frame={target_pose.header.frame_id}, "
+            f"position=("
+            f"{target_pose.pose.position.x:.3f}, "
+            f"{target_pose.pose.position.y:.3f}, "
+            f"{target_pose.pose.position.z:.3f}), "
+            f"max_step={self.cartesian_approach_step_m:.3f}m"
+        )
+
+        try:
+            future = self.cartesian_path_client.call_async(
+                request
+            )
+        except Exception as error:
+            self.get_logger().error(
+                f"Failed to request Cartesian path: {error}"
+            )
+            self.schedule_retry(
+                f"Cartesian request error: {error}"
+            )
+            return
+
+        future.add_done_callback(
+            self.cartesian_plan_result_callback
+        )
+
+    def cartesian_plan_result_callback(self, future):
+        """验证笛卡尔路径完整度并发送轨迹执行请求。"""
+        try:
+            response = future.result()
+        except Exception as error:
+            self.get_logger().error(
+                f"Failed to receive Cartesian path: {error}"
+            )
+            self.schedule_retry(
+                f"Cartesian result error: {error}"
+            )
+            return
+
+        if response.error_code.val != MoveItErrorCodes.SUCCESS:
+            self.get_logger().error(
+                "Cartesian grasp planning failed: "
+                f"error_code={response.error_code.val}"
+            )
+            self.schedule_retry(
+                "Cartesian grasp planning failed with "
+                f"error code {response.error_code.val}"
+            )
+            return
+
+        if response.fraction < self.cartesian_min_fraction:
+            self.get_logger().error(
+                "Cartesian grasp path is incomplete: "
+                f"fraction={response.fraction:.3f}, "
+                "required="
+                f"{self.cartesian_min_fraction:.3f}"
+            )
+            self.schedule_retry(
+                "Cartesian grasp path fraction "
+                f"{response.fraction:.3f} is below "
+                f"{self.cartesian_min_fraction:.3f}"
+            )
+            return
+
+        try:
+            trajectory = parameterize_cartesian_trajectory(
+                response.solution,
+                self.cartesian_approach_duration_sec,
+            )
+        except (TypeError, ValueError) as error:
+            self.get_logger().error(
+                f"Invalid Cartesian trajectory: {error}"
+            )
+            self.schedule_retry(
+                f"invalid Cartesian trajectory: {error}"
+            )
+            return
+
+        if not self.execute_trajectory_client.server_is_ready():
+            self.get_logger().error(
+                "MoveIt /execute_trajectory action server "
+                "is unavailable"
+            )
+            self.schedule_retry(
+                "trajectory execution server is unavailable"
+            )
+            return
+
+        point_count = len(
+            trajectory.joint_trajectory.points
+        )
+        self.get_logger().info(
+            "Cartesian grasp path ready: "
+            f"fraction={response.fraction:.3f}, "
+            f"points={point_count}, "
+            "duration="
+            f"{self.cartesian_approach_duration_sec:.1f}s"
+        )
+        self.publish_status(
+            "EXECUTING",
+            "phase=grasp_cartesian",
+        )
+
+        goal = ExecuteTrajectory.Goal()
+        goal.trajectory = trajectory
+
+        try:
+            goal_future = (
+                self.execute_trajectory_client.send_goal_async(
+                    goal
+                )
+            )
+        except Exception as error:
+            self.get_logger().error(
+                "Failed to start Cartesian trajectory: "
+                f"{error}"
+            )
+            self.schedule_retry(
+                f"Cartesian execution start error: {error}"
+            )
+            return
+
+        goal_future.add_done_callback(
+            self.cartesian_execute_goal_response_callback
+        )
+
+    def cartesian_execute_goal_response_callback(self, future):
+        """处理MoveIt是否接受笛卡尔轨迹。"""
+        try:
+            goal_handle = future.result()
+        except Exception as error:
+            self.get_logger().error(
+                "Failed to send Cartesian trajectory: "
+                f"{error}"
+            )
+            self.schedule_retry(
+                f"Cartesian trajectory send error: {error}"
+            )
+            return
+
+        if not goal_handle.accepted:
+            self.get_logger().error(
+                "MoveIt rejected the Cartesian trajectory"
+            )
+            self.schedule_retry(
+                "MoveIt rejected the Cartesian trajectory"
+            )
+            return
+
+        self.get_logger().info(
+            "MoveIt accepted the Cartesian trajectory"
+        )
+        result_future = goal_handle.get_result_async()
+        result_future.add_done_callback(
+            self.cartesian_execute_result_callback
+        )
+
+    def cartesian_execute_result_callback(self, future):
+        """成功直线靠近后触发已有夹爪和吸附流程。"""
+        try:
+            wrapped_result = future.result()
+        except Exception as error:
+            self.get_logger().error(
+                "Failed to receive Cartesian execution result: "
+                f"{error}"
+            )
+            self.schedule_retry(
+                f"Cartesian execution result error: {error}"
+            )
+            return
+
+        error_code = wrapped_result.result.error_code.val
+        if error_code != MoveItErrorCodes.SUCCESS:
+            self.get_logger().error(
+                "Cartesian grasp execution failed: "
+                f"error_code={error_code}"
+            )
+            self.schedule_retry(
+                "Cartesian grasp execution failed with "
+                f"error code {error_code}"
+            )
+            return
+
+        self.get_logger().info(
+            "Cartesian grasp approach executed successfully"
+        )
+        self.publish_status(
+            "GRASP_APPROACH_SUCCEEDED",
+            "Cartesian execution completed",
+        )
+        self.retry_count = 0
+        self.start_grasp_result_timeout()
+
     def schedule_retry(self, failure_reason):
         """失败后安排有限次数的延迟重试。"""
         if self.retry_timer is not None:
@@ -1216,9 +1689,7 @@ class AppleMoveItPlanner(Node):
             self.reset_sequence_state()
             return
 
-        self.send_moveit_request(
-            self.latest_target_pose
-        )
+        self.send_current_phase_request()
 
     def moveit_feedback_callback(
             self,
@@ -1465,9 +1936,7 @@ class AppleMoveItPlanner(Node):
             self.latest_target_pose = next_target_pose
             self.retry_count = 0
 
-            self.send_moveit_request(
-                self.latest_target_pose
-            )
+            self.send_current_phase_request()
             return
 
         self.publish_status(

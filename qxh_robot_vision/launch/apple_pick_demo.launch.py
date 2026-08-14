@@ -112,7 +112,8 @@ def generate_launch_description():
             {
                 "use_sim_time": True,
                 "approach_distance_m": 0.25,
-                "grasp_offset_m": 0.10,
+                "grasp_offset_m": 0.18,
+                "tool_height_offset_m": 0.06,
                 "expected_frame": "base_link",
                 "publish_once": False,
                 "candidate_collection_sec": 1.0,

@@ -1,15 +1,74 @@
 import pytest
 
 from geometry_msgs.msg import PoseStamped
+from moveit_msgs.msg import RobotTrajectory
+from trajectory_msgs.msg import JointTrajectoryPoint
 from qxh_robot_vision.apple_moveit_planner import (
+    create_cartesian_approach_request,
     create_ground_collision_objects,
     create_fixed_place_pose,
+    create_pick_platform_collision_object,
+    create_sorting_platform_collision_object,
     create_unripe_apple_collision_object,
     get_grasp_result_action,
     get_next_motion_phase,
     get_phase_gate_action,
     get_release_result_action,
+    parameterize_cartesian_trajectory,
 )
+
+
+def test_cartesian_approach_request_keeps_fixed_grasp_pose():
+    target_pose = PoseStamped()
+    target_pose.header.frame_id = "base_link"
+    target_pose.pose.position.x = 0.507
+    target_pose.pose.position.y = -0.335
+    target_pose.pose.position.z = 0.476
+    target_pose.pose.orientation.w = 1.0
+
+    request = create_cartesian_approach_request(
+        target_pose=target_pose,
+        planning_group="ur_manipulator",
+        end_effector_link="tool0",
+        max_step_m=0.01,
+    )
+
+    assert request.header.frame_id == "base_link"
+    assert request.start_state.is_diff is True
+    assert request.group_name == "ur_manipulator"
+    assert request.link_name == "tool0"
+    assert len(request.waypoints) == 1
+    assert request.waypoints[0] == target_pose.pose
+    assert request.max_step == pytest.approx(0.01)
+    assert request.avoid_collisions is True
+
+
+def test_cartesian_trajectory_receives_increasing_timestamps():
+    trajectory = RobotTrajectory()
+    for _ in range(3):
+        trajectory.joint_trajectory.points.append(
+            JointTrajectoryPoint()
+        )
+
+    parameterize_cartesian_trajectory(
+        trajectory,
+        duration_sec=6.0,
+    )
+
+    timestamps = [
+        point.time_from_start.sec
+        + point.time_from_start.nanosec / 1_000_000_000.0
+        for point in trajectory.joint_trajectory.points
+    ]
+    assert timestamps == pytest.approx([2.0, 4.0, 6.0])
+
+
+def test_cartesian_trajectory_rejects_empty_path():
+    with pytest.raises(ValueError):
+        parameterize_cartesian_trajectory(
+            RobotTrajectory(),
+            duration_sec=6.0,
+        )
 
 
 def test_ground_collision_objects_cover_floor_around_base():
@@ -50,6 +109,48 @@ def test_ground_collision_objects_reject_invalid_frame():
 
     with pytest.raises(ValueError):
         create_ground_collision_objects("")
+
+
+def test_pick_platform_collision_matches_gazebo_scene():
+    collision_object = create_pick_platform_collision_object(
+        "base_link"
+    )
+
+    assert collision_object.header.frame_id == "base_link"
+    assert collision_object.id == "platform_a_pick_area"
+    assert collision_object.operation == collision_object.ADD
+
+    primitive = collision_object.primitives[0]
+    pose = collision_object.primitive_poses[0]
+    assert primitive.type == primitive.BOX
+    assert primitive.dimensions == pytest.approx(
+        [0.44, 0.82, 0.12]
+    )
+    assert pose.position.x == pytest.approx(0.68)
+    assert pose.position.y == pytest.approx(0.0)
+    assert pose.position.z == pytest.approx(0.36)
+    assert pose.orientation.w == 1.0
+
+
+def test_sorting_platform_collision_matches_gazebo_scene():
+    collision_object = create_sorting_platform_collision_object(
+        "base_link"
+    )
+
+    assert collision_object.header.frame_id == "base_link"
+    assert collision_object.id == "platform_b_sorting_area"
+    assert collision_object.operation == collision_object.ADD
+
+    primitive = collision_object.primitives[0]
+    pose = collision_object.primitive_poses[0]
+    assert primitive.type == primitive.BOX
+    assert primitive.dimensions == pytest.approx(
+        [0.30, 0.70, 0.12]
+    )
+    assert pose.position.x == pytest.approx(0.32)
+    assert pose.position.y == pytest.approx(0.30)
+    assert pose.position.z == pytest.approx(0.36)
+    assert pose.orientation.w == 1.0
 
 
 def test_unripe_apple_collision_includes_gripper_clearance():

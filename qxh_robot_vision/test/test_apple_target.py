@@ -69,6 +69,33 @@ def test_target_poses_keep_header_and_unit_orientation(apple_point):
         assert target_pose.pose.orientation.w == 1.0
 
 
+def test_target_poses_add_tool_clearance_above_platform(apple_point):
+    pregrasp_pose = create_pregrasp_pose(
+        apple_point,
+        approach_distance_m=0.25,
+        height_offset_m=0.06,
+    )
+    grasp_pose = create_grasp_pose(
+        apple_point,
+        grasp_offset_m=0.10,
+        height_offset_m=0.06,
+    )
+
+    assert pregrasp_pose.pose.position.z == pytest.approx(0.610)
+    assert grasp_pose.pose.position.z == pytest.approx(0.610)
+
+
+def test_grasp_pose_matches_demo_fingertip_length(apple_point):
+    grasp_pose = create_grasp_pose(
+        apple_point,
+        grasp_offset_m=0.18,
+        height_offset_m=0.06,
+    )
+
+    assert grasp_pose.pose.position.x == pytest.approx(0.598)
+    assert grasp_pose.pose.position.z == pytest.approx(0.610)
+
+
 @pytest.mark.parametrize(
     "invalid_offset",
     [0.0, -0.1, float("nan"), float("inf")],
