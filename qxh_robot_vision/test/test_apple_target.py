@@ -85,6 +85,30 @@ def test_target_poses_add_tool_clearance_above_platform(apple_point):
     assert grasp_pose.pose.position.z == pytest.approx(0.610)
 
 
+def test_queued_pregrasp_adds_lateral_and_height_clearance(
+        apple_point,
+):
+    pregrasp_pose = create_pregrasp_pose(
+        apple_point,
+        approach_distance_m=0.25,
+        height_offset_m=0.12,
+        lateral_offset_m=-0.25,
+    )
+
+    assert pregrasp_pose.pose.position.x == pytest.approx(0.528)
+    assert pregrasp_pose.pose.position.y == pytest.approx(-0.417)
+    assert pregrasp_pose.pose.position.z == pytest.approx(0.670)
+
+
+def test_pregrasp_rejects_non_finite_lateral_offset(apple_point):
+    with pytest.raises(ValueError):
+        create_pregrasp_pose(
+            apple_point,
+            approach_distance_m=0.25,
+            lateral_offset_m=float("nan"),
+        )
+
+
 def test_grasp_pose_matches_demo_fingertip_length(apple_point):
     grasp_pose = create_grasp_pose(
         apple_point,

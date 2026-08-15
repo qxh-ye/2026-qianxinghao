@@ -89,3 +89,11 @@ def test_pick_demo_launch_places_ripe_apple_on_platform_b():
     assert '"place_x_m": 0.24' in source
     assert '"place_y_m": 0.35' in source
     assert '"place_z_m": 0.60' in source
+    assert (
+        '"queued_pregrasp_lateral_offset_m": -0.25'
+        in source
+    )
+    assert (
+        '"queued_pregrasp_height_clearance_m": 0.06'
+        in source
+    )

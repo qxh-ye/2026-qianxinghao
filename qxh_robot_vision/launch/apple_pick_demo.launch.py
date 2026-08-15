@@ -114,6 +114,8 @@ def generate_launch_description():
                 "approach_distance_m": 0.25,
                 "grasp_offset_m": 0.18,
                 "tool_height_offset_m": 0.06,
+                "queued_pregrasp_lateral_offset_m": -0.25,
+                "queued_pregrasp_height_clearance_m": 0.06,
                 "expected_frame": "base_link",
                 "publish_once": False,
                 "candidate_collection_sec": 1.0,

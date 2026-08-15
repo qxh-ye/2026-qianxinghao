@@ -265,14 +265,21 @@ def create_pregrasp_pose(
         apple_point,
         approach_distance_m,
         height_offset_m=0.0,
+        lateral_offset_m=0.0,
 ):
     """根据苹果基座坐标生成预抓取位姿。"""
-    return create_offset_pose(
+    lateral_offset_m = float(lateral_offset_m)
+    if not math.isfinite(lateral_offset_m):
+        raise ValueError("预抓取侧向偏移必须是有限值")
+
+    target_pose = create_offset_pose(
         apple_point=apple_point,
         offset_distance_m=approach_distance_m,
         distance_name="预抓取距离",
         height_offset_m=height_offset_m,
     )
+    target_pose.pose.position.y += lateral_offset_m
+    return target_pose
 
 
 def create_grasp_pose(
@@ -308,6 +315,16 @@ class AppleTargetNode(Node):
         self.declare_parameter(
             "tool_height_offset_m",
             0.06,
+        )
+
+        self.declare_parameter(
+            "queued_pregrasp_lateral_offset_m",
+            0.0,
+        )
+
+        self.declare_parameter(
+            "queued_pregrasp_height_clearance_m",
+            0.0,
         )
 
         self.declare_parameter(
@@ -353,12 +370,42 @@ class AppleTargetNode(Node):
             ).value
         )
 
+        self.queued_pregrasp_lateral_offset_m = float(
+            self.get_parameter(
+                "queued_pregrasp_lateral_offset_m"
+            ).value
+        )
+
+        self.queued_pregrasp_height_clearance_m = float(
+            self.get_parameter(
+                "queued_pregrasp_height_clearance_m"
+            ).value
+        )
+
         if (
             not math.isfinite(self.tool_height_offset_m)
             or self.tool_height_offset_m < 0.0
         ):
             raise ValueError(
                 "tool_height_offset_m "
+                "必须是大于等于0的有限值"
+            )
+
+        if not math.isfinite(
+            self.queued_pregrasp_lateral_offset_m
+        ):
+            raise ValueError(
+                "queued_pregrasp_lateral_offset_m 必须是有限值"
+            )
+
+        if (
+            not math.isfinite(
+                self.queued_pregrasp_height_clearance_m
+            )
+            or self.queued_pregrasp_height_clearance_m < 0.0
+        ):
+            raise ValueError(
+                "queued_pregrasp_height_clearance_m "
                 "必须是大于等于0的有限值"
             )
 
@@ -484,6 +531,10 @@ class AppleTargetNode(Node):
             f"grasp_offset_m={self.grasp_offset_m:.3f}, "
             "tool_height_offset_m="
             f"{self.tool_height_offset_m:.3f}, "
+            "queued_pregrasp_lateral_offset_m="
+            f"{self.queued_pregrasp_lateral_offset_m:.3f}, "
+            "queued_pregrasp_height_clearance_m="
+            f"{self.queued_pregrasp_height_clearance_m:.3f}, "
             f"expected_frame={self.expected_frame}, "
             f"publish_once={self.publish_once}, "
             "candidate_collection_sec="
@@ -596,6 +647,16 @@ class AppleTargetNode(Node):
     def publish_candidate_target(self, candidate):
         """为一个候选生成位姿并交给MoveIt流程."""
         message = candidate.point
+        is_queued_candidate = candidate.apple_id > 1
+        pregrasp_lateral_offset_m = 0.0
+        pregrasp_height_clearance_m = 0.0
+        if is_queued_candidate:
+            pregrasp_lateral_offset_m = (
+                self.queued_pregrasp_lateral_offset_m
+            )
+            pregrasp_height_clearance_m = (
+                self.queued_pregrasp_height_clearance_m
+            )
 
         try:
             pregrasp_pose = create_pregrasp_pose(
@@ -605,7 +666,9 @@ class AppleTargetNode(Node):
                 ),
                 height_offset_m=(
                     self.tool_height_offset_m
+                    + pregrasp_height_clearance_m
                 ),
+                lateral_offset_m=pregrasp_lateral_offset_m,
             )
             grasp_pose = create_grasp_pose(
                 apple_point=message,
